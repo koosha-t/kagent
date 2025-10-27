@@ -3,6 +3,9 @@
 ## Installation
 
 ```bash
+# Build Helm charts (required before first installation)
+make helm-version
+
 # Create namespace
 kubectl create namespace kagent
 
