@@ -142,20 +142,32 @@ get_tag_from_values() {
     local default_version=$2
     local values_file="$SCRIPT_DIR/kinagent-values.yaml"
 
-    # First check for global tag override
-    local global_tag=$(grep "^tag:" "$values_file" | head -1 | sed 's/^tag:[[:space:]]*"\?\([^"]*\)"\?/\1/' | xargs)
+    # Extract tag value from YAML, handling empty strings and quotes
+    extract_tag() {
+        local line=$1
+        # Extract everything after "tag:" and remove quotes and whitespace
+        echo "$line" | awk -F'tag:' '{print $2}' | tr -d '"' | tr -d "'" | xargs
+    }
 
-    # Then check for component-specific tag
+    # Check for global tag override
+    local global_tag_line=$(grep "^tag:" "$values_file" | head -1)
+    local global_tag=$(extract_tag "$global_tag_line")
+
+    # Check for component-specific tag
     local component_tag=""
     if [ "$component" = "controller" ]; then
-        component_tag=$(grep -A 5 "^controller:" "$values_file" | grep -A 3 "image:" | grep "tag:" | sed 's/^[[:space:]]*tag:[[:space:]]*"\?\([^"]*\)"\?/\1/' | xargs)
+        local tag_line=$(awk '/^controller:/,/^[a-z]/ {if (/^  image:/,/^  [a-z]/) if (/tag:/) print}' "$values_file" | head -1)
+        component_tag=$(extract_tag "$tag_line")
     elif [ "$component" = "ui" ]; then
-        component_tag=$(grep -A 5 "^ui:" "$values_file" | grep -A 3 "image:" | grep "tag:" | sed 's/^[[:space:]]*tag:[[:space:]]*"\?\([^"]*\)"\?/\1/' | xargs)
+        local tag_line=$(awk '/^ui:/,/^[a-z]/ {if (/^  image:/,/^  [a-z]/) if (/tag:/) print}' "$values_file" | head -1)
+        component_tag=$(extract_tag "$tag_line")
     elif [ "$component" = "agentImage" ]; then
-        component_tag=$(grep -A 10 "^controller:" "$values_file" | grep -A 3 "agentImage:" | grep "tag:" | sed 's/^[[:space:]]*tag:[[:space:]]*"\?\([^"]*\)"\?/\1/' | xargs)
+        local tag_line=$(awk '/^controller:/,/^[a-z]/ {if (/^  agentImage:/,/^  [a-z]/) if (/tag:/) print}' "$values_file" | head -1)
+        component_tag=$(extract_tag "$tag_line")
     fi
 
     # Priority: component_tag > global_tag > default_version
+    # Only use if not empty
     if [ -n "$component_tag" ]; then
         echo "$component_tag"
     elif [ -n "$global_tag" ]; then
