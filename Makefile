@@ -41,6 +41,12 @@ AKS_SERVICE_TYPE ?= ClusterIP
 AKS_NAMESPACE ?= kagent
 AKS_DEFAULT_MODEL_PROVIDER ?= azureOpenAI
 
+# Azure OpenAI specific configuration
+AZUREOPENAI_ENDPOINT ?=
+AZUREOPENAI_DEPLOYMENT ?=
+AZUREOPENAI_API_VERSION ?= 2024-08-01-preview
+AZUREOPENAI_MODEL ?= gpt-4o
+
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
@@ -449,6 +455,11 @@ check-aks-api-key:
 			echo "Please set it with: export AZUREOPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
+		if [ -z "$(AZUREOPENAI_ENDPOINT)" ]; then \
+			echo "Error: AZUREOPENAI_ENDPOINT environment variable is not set for Azure OpenAI provider"; \
+			echo "Please set it with: export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com"; \
+			exit 1; \
+		fi; \
 	elif [ "$(AKS_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
 		if [ -z "$(GOOGLE_API_KEY)" ]; then \
 			echo "Error: GOOGLE_API_KEY environment variable is not set for Gemini provider"; \
@@ -520,6 +531,10 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context
 		--set controller.service.type=$(AKS_SERVICE_TYPE) \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.azureOpenAI.config.apiVersion=$(AZUREOPENAI_API_VERSION) \
+		--set providers.azureOpenAI.config.azureEndpoint=$(AZUREOPENAI_ENDPOINT) \
+		--set providers.azureOpenAI.config.azureDeployment=$(AZUREOPENAI_DEPLOYMENT) \
+		--set providers.azureOpenAI.model=$(AZUREOPENAI_MODEL) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(AKS_DEFAULT_MODEL_PROVIDER) \

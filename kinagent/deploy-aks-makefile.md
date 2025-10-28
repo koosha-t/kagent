@@ -31,7 +31,10 @@ This guide shows how to deploy Kagent to Azure Kubernetes Service (AKS) using th
 
 5. **ACR Access** - Ensure you have push access to the Azure Container Registry
 
-6. **Azure OpenAI** - Have your Azure OpenAI API key ready
+6. **Azure OpenAI** - Have your Azure OpenAI credentials ready:
+   - API key (required)
+   - Endpoint URL (required, e.g., `https://your-resource.openai.azure.com`)
+   - Model/deployment name (optional, defaults to `gpt-4o`)
 
 ## Quick Start
 
@@ -40,12 +43,20 @@ This guide shows how to deploy Kagent to Azure Kubernetes Service (AKS) using th
 The simplest way to deploy to AKS with Azure OpenAI:
 
 ```bash
-# Set your Azure OpenAI API key
+# Required: Set your Azure OpenAI credentials
 export AZUREOPENAI_API_KEY=your-azure-openai-api-key
+export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com
+
+# Optional: Configure Azure OpenAI settings (recommended to set at least model name)
+export AZUREOPENAI_MODEL=gpt-4o                        # Default: gpt-4o (this is your deployment name)
+export AZUREOPENAI_API_VERSION=2024-08-01-preview      # Default: 2024-08-01-preview
+export AZUREOPENAI_DEPLOYMENT=gpt-4o                   # Optional: Azure deployment name
 
 # Deploy everything with one command
 make aks-deploy-all
 ```
+
+**Note:** Only `AZUREOPENAI_API_KEY` and `AZUREOPENAI_ENDPOINT` are required. The `AZUREOPENAI_MODEL` acts as your deployment name in Azure OpenAI API calls.
 
 This will:
 1. Authenticate to ACR
@@ -72,8 +83,12 @@ This target:
 ### Step 2: Deploy to AKS
 
 ```bash
-# Set your Azure OpenAI API key
+# Set your Azure OpenAI configuration (required)
 export AZUREOPENAI_API_KEY=your-azure-openai-api-key
+export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com
+
+# Optional: Set model/deployment configuration
+export AZUREOPENAI_MODEL=gpt-4o
 
 # Deploy to AKS (defaults to Azure OpenAI)
 make helm-install-aks
@@ -130,16 +145,35 @@ make aks-deploy-all
 
 ### Advanced Azure OpenAI Configuration
 
-For more Azure OpenAI configuration options (endpoint, deployment name, API version):
+You can configure all 5 Azure OpenAI parameters for complete control:
 
 ```bash
-# Build and push images
+# Required parameters
+export AZUREOPENAI_API_KEY=your-azure-api-key
+export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com
+
+# Optional parameters (with defaults shown)
+export AZUREOPENAI_MODEL=gpt-4o                        # Model name used in API calls
+export AZUREOPENAI_API_VERSION=2024-08-01-preview      # Azure OpenAI API version
+export AZUREOPENAI_DEPLOYMENT=your-deployment-name     # Optional deployment name
+
+# Deploy with all parameters
+make aks-deploy-all
+```
+
+**Parameter Explanation:**
+- **`AZUREOPENAI_API_KEY`**: Your Azure OpenAI API key (required)
+- **`AZUREOPENAI_ENDPOINT`**: Your Azure OpenAI resource endpoint (required)
+- **`AZUREOPENAI_MODEL`**: Model/deployment name used in API calls (default: `gpt-4o`)
+- **`AZUREOPENAI_API_VERSION`**: Azure OpenAI API version (default: `2024-08-01-preview`)
+- **`AZUREOPENAI_DEPLOYMENT`**: Alternative deployment name field (optional, typically not needed)
+
+**For manual Helm deployment with custom values:**
+```bash
+# Build and push images first
 make build-acr
 
-# Deploy with custom Azure OpenAI settings
-export AZUREOPENAI_API_KEY=your-azure-api-key
-make helm-version check-aks-api-key aks-check-context
-
+# Deploy manually with Helm
 helm upgrade --install kagent helm/kagent \
   --namespace kagent \
   --create-namespace \
@@ -147,10 +181,10 @@ helm upgrade --install kagent helm/kagent \
   --set tag=$(git describe --tags --always 2>/dev/null | grep v || echo "v0.0.0-$(git rev-parse --short HEAD)") \
   --set providers.default=azureOpenAI \
   --set providers.azureOpenAI.apiKey=$AZUREOPENAI_API_KEY \
-  --set providers.azureOpenAI.config.apiVersion=2024-08-01-preview \
-  --set providers.azureOpenAI.config.azureEndpoint=https://your-resource.openai.azure.com \
-  --set providers.azureOpenAI.config.azureDeployment=your-deployment-name \
-  --set providers.azureOpenAI.model=gpt-4o
+  --set providers.azureOpenAI.config.apiVersion=$AZUREOPENAI_API_VERSION \
+  --set providers.azureOpenAI.config.azureEndpoint=$AZUREOPENAI_ENDPOINT \
+  --set providers.azureOpenAI.config.azureDeployment=$AZUREOPENAI_DEPLOYMENT \
+  --set providers.azureOpenAI.model=$AZUREOPENAI_MODEL
 ```
 
 ### Using LoadBalancer Instead of ClusterIP
@@ -264,17 +298,20 @@ az acr login --name <registry-name>
 az acr repository list --name <registry-name>
 ```
 
-### Missing Azure OpenAI API Key
+### Missing Azure OpenAI Configuration
 
-If you see: `Error: AZUREOPENAI_API_KEY environment variable is not set`
+If you see errors about missing Azure OpenAI environment variables:
 
 ```bash
-# Set your Azure OpenAI API key
+# Set required Azure OpenAI configuration
 export AZUREOPENAI_API_KEY=your-azure-openai-api-key
+export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com
 
 # Retry deployment
 make helm-install-aks
 ```
+
+**Note:** Only API key and endpoint are required. Model name, API version, and deployment name are optional (have defaults).
 
 ### Wrong Kubectl Context
 
@@ -433,7 +470,11 @@ KMCP_ENABLED=true make helm-install-aks
 | `AKS_SERVICE_TYPE` | `ClusterIP` | Kubernetes service type (ClusterIP or LoadBalancer) |
 | `AKS_NAMESPACE` | `kagent` | Kubernetes namespace for deployment |
 | `AKS_DEFAULT_MODEL_PROVIDER` | `azureOpenAI` | Default model provider for AKS |
-| `AZUREOPENAI_API_KEY` | (required) | Azure OpenAI API key |
+| `AZUREOPENAI_API_KEY` | **(required)** | Azure OpenAI API key |
+| `AZUREOPENAI_ENDPOINT` | **(required)** | Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com) |
+| `AZUREOPENAI_MODEL` | `gpt-4o` | Model/deployment name - used in Azure OpenAI API calls |
+| `AZUREOPENAI_API_VERSION` | `2024-08-01-preview` | Azure OpenAI API version |
+| `AZUREOPENAI_DEPLOYMENT` | (empty) | Optional: Azure deployment name (typically use AZUREOPENAI_MODEL instead) |
 | `VERSION` | auto-detected from git | Image tag version |
 | `KMCP_ENABLED` | `true` | Enable/disable KMCP |
 
