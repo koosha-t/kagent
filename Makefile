@@ -552,6 +552,7 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--set imagePullPolicy=IfNotPresent \
 		--set tag=$(VERSION) \
 		--set imagePullSecrets[0].name=acr-secret \
+		--set controller.agentImage.pullSecret=acr-secret \
 		--set controller.image.pullPolicy=IfNotPresent \
 		--set ui.image.pullPolicy=IfNotPresent \
 		--set controller.service.type=$(AKS_SERVICE_TYPE) \
