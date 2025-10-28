@@ -31,6 +31,16 @@ DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.34.0
 
+# Azure Container Registry configuration
+ACR_REGISTRY ?= obscr.azurecr.io
+ACR_REPO ?= kagent-dev/kagent
+ACR_BUILD_ARGS ?= --push --platform linux/amd64,linux/arm64
+
+# AKS deployment configuration
+AKS_SERVICE_TYPE ?= ClusterIP
+AKS_NAMESPACE ?= kagent
+AKS_DEFAULT_MODEL_PROVIDER ?= azureOpenAI
+
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
@@ -414,3 +424,144 @@ report/image-cve: audit build
 	grype docker:$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype docker:$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype docker:$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
+
+##############################################################################
+# Azure Container Registry (ACR) and Azure Kubernetes Service (AKS) Targets
+##############################################################################
+
+# Check if the appropriate API key is set for AKS deployment
+check-aks-api-key:
+	@if [ "$(AKS_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
+		if [ -z "$(OPENAI_API_KEY)" ]; then \
+			echo "Error: OPENAI_API_KEY environment variable is not set for OpenAI provider"; \
+			echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(AKS_DEFAULT_MODEL_PROVIDER)" = "anthropic" ]; then \
+		if [ -z "$(ANTHROPIC_API_KEY)" ]; then \
+			echo "Error: ANTHROPIC_API_KEY environment variable is not set for Anthropic provider"; \
+			echo "Please set it with: export ANTHROPIC_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(AKS_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
+		if [ -z "$(AZUREOPENAI_API_KEY)" ]; then \
+			echo "Error: AZUREOPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
+			echo "Please set it with: export AZUREOPENAI_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(AKS_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
+		if [ -z "$(GOOGLE_API_KEY)" ]; then \
+			echo "Error: GOOGLE_API_KEY environment variable is not set for Gemini provider"; \
+			echo "Please set it with: export GOOGLE_API_KEY=your-api-key"; \
+			exit 1; \
+		fi; \
+	elif [ "$(AKS_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
+		echo "Note: Ollama provider does not require an API key"; \
+	else \
+		echo "Warning: Unknown model provider '$(AKS_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
+	fi
+
+.PHONY: acr-login
+acr-login:
+	@echo "Checking Azure CLI availability..."
+	@which az > /dev/null || (echo "Error: Azure CLI (az) is not installed. Please install it from https://docs.microsoft.com/en-us/cli/azure/install-azure-cli" && exit 1)
+	@echo "Authenticating to Azure Container Registry: $(ACR_REGISTRY)..."
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	az acr login --name $$ACR_NAME || (echo "Error: Failed to authenticate to ACR. Please run 'az login' first." && exit 1)
+	@echo "Successfully authenticated to $(ACR_REGISTRY)"
+
+.PHONY: build-acr
+build-acr: buildx-create acr-login controller-manifests
+	@echo "Building and pushing images to Azure Container Registry: $(ACR_REGISTRY)"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(ACR_REGISTRY)/$(ACR_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(ACR_REGISTRY) -t $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG) -f python/Dockerfile.app ./python
+	@echo "Build completed successfully."
+	@echo "Controller Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)"
+	@echo "UI Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
+	@echo "App Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)"
+	@echo "Kagent ADK Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)"
+
+.PHONY: aks-check-context
+aks-check-context:
+	@echo "Checking current kubectl context..."
+	@CURRENT_CONTEXT=$$(kubectl config current-context); \
+	echo "Current context: $$CURRENT_CONTEXT"; \
+	if echo "$$CURRENT_CONTEXT" | grep -q "^kind-"; then \
+		echo "Warning: Current context appears to be a Kind cluster ($$CURRENT_CONTEXT)."; \
+		echo "Are you sure you want to deploy to this cluster? If not, switch context first:"; \
+		echo "  kubectl config use-context <your-aks-context>"; \
+		exit 1; \
+	fi
+
+.PHONY: helm-install-aks
+helm-install-aks: helm-version check-aks-api-key aks-check-context
+	@echo "Installing kagent to AKS cluster using ACR images..."
+	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
+		--namespace $(AKS_NAMESPACE) \
+		--create-namespace \
+		--history-max 2    \
+		--timeout 5m 			\
+		--wait \
+		--set kmcp.enabled=$(KMCP_ENABLED)
+	helm $(HELM_ACTION) kagent helm/kagent \
+		--namespace $(AKS_NAMESPACE) \
+		--create-namespace \
+		--history-max 2    \
+		--timeout 5m       \
+		--wait \
+		--set ui.service.type=$(AKS_SERVICE_TYPE) \
+		--set registry=$(ACR_REGISTRY)/$(ACR_REPO) \
+		--set imagePullPolicy=IfNotPresent \
+		--set tag=$(VERSION) \
+		--set controller.image.pullPolicy=IfNotPresent \
+		--set ui.image.pullPolicy=IfNotPresent \
+		--set controller.service.type=$(AKS_SERVICE_TYPE) \
+		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
+		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
+		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
+		--set providers.default=$(AKS_DEFAULT_MODEL_PROVIDER) \
+		--set kmcp.enabled=$(KMCP_ENABLED) \
+		--set kmcp.image.tag=$(KMCP_VERSION) \
+		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		$(KAGENT_HELM_EXTRA_ARGS)
+	@echo ""
+	@echo "Kagent successfully installed to AKS!"
+	@echo "To access the UI, run: make aks-port-forward-ui"
+	@echo "To access the CLI, run: make aks-port-forward-cli"
+
+.PHONY: helm-uninstall-aks
+helm-uninstall-aks:
+	@echo "Uninstalling kagent from AKS cluster..."
+	helm uninstall kagent --namespace $(AKS_NAMESPACE) --wait || true
+	helm uninstall kagent-crds --namespace $(AKS_NAMESPACE) --wait || true
+	@echo "Kagent uninstalled from AKS."
+
+.PHONY: aks-port-forward-ui
+aks-port-forward-ui:
+	@echo "Port forwarding kagent UI to http://localhost:8082/"
+	@echo "Press Ctrl+C to stop port forwarding."
+	kubectl port-forward -n $(AKS_NAMESPACE) service/kagent-ui 8082:8080
+
+.PHONY: aks-port-forward-cli
+aks-port-forward-cli:
+	@echo "Port forwarding kagent CLI to localhost:8083"
+	@echo "Press Ctrl+C to stop port forwarding."
+	kubectl port-forward -n $(AKS_NAMESPACE) service/kagent-controller 8083:8083
+
+.PHONY: aks-deploy-all
+aks-deploy-all: build-acr helm-install-aks
+	@echo ""
+	@echo "=========================================="
+	@echo "Kagent deployment to AKS complete!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Images pushed to: $(ACR_REGISTRY)/$(ACR_REPO)"
+	@echo "Deployed to namespace: $(AKS_NAMESPACE)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  - Access UI: make aks-port-forward-ui"
+	@echo "  - Access CLI: make aks-port-forward-cli"
+	@echo ""
