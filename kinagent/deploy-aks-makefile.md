@@ -112,6 +112,12 @@ ACR_REGISTRY=myregistry.azurecr.io make aks-deploy-all
 ACR_REPO=my-team/kagent make aks-deploy-all
 ```
 
+**Note on Image Paths:**
+- Images are built and pushed to: `{ACR_REGISTRY}/{ACR_REPO}/{image-name}:{tag}`
+- Example: `obscr.azurecr.io/kagent-dev/kagent/controller:v0.0.0-82949b2`
+- The Helm chart pulls from: `{ACR_REGISTRY}/kagent-dev/kagent/{image-name}:{tag}`
+- The `ACR_REPO` variable affects only where images are pushed during build, not where Helm pulls them from (Helm uses the chart's default repository paths)
+
 ### Deploying to a Different Namespace
 
 ```bash
@@ -465,8 +471,8 @@ KMCP_ENABLED=true make helm-install-aks
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ACR_REGISTRY` | `obscr.azurecr.io` | Azure Container Registry URL |
-| `ACR_REPO` | `kagent-dev/kagent` | Repository path in ACR |
+| `ACR_REGISTRY` | `obscr.azurecr.io` | Azure Container Registry URL (used for both building and pulling images) |
+| `ACR_REPO` | `kagent-dev/kagent` | Repository path in ACR (only used during image build, not for Helm deployment) |
 | `AKS_SERVICE_TYPE` | `ClusterIP` | Kubernetes service type (ClusterIP or LoadBalancer) |
 | `AKS_NAMESPACE` | `kagent` | Kubernetes namespace for deployment |
 | `AKS_DEFAULT_MODEL_PROVIDER` | `azureOpenAI` | Default model provider for AKS |

@@ -523,7 +523,7 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context
 		--timeout 5m       \
 		--wait \
 		--set ui.service.type=$(AKS_SERVICE_TYPE) \
-		--set registry=$(ACR_REGISTRY)/$(ACR_REPO) \
+		--set registry=$(ACR_REGISTRY) \
 		--set imagePullPolicy=IfNotPresent \
 		--set tag=$(VERSION) \
 		--set controller.image.pullPolicy=IfNotPresent \
