@@ -2,6 +2,14 @@
 
 ## Build and Push Images to ACR
 
+### Option 1: Using the build script (recommended)
+
+```bash
+./kinagent/build-and-push-acr.sh
+```
+
+### Option 2: Manual steps
+
 ```bash
 # Build images locally
 make controller-manifests
