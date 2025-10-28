@@ -64,6 +64,22 @@ This will:
 3. Push images to ACR
 4. Deploy kagent to your AKS cluster using Azure OpenAI by default
 
+### Quick Deploy (Using Pre-Built Images)
+
+If images are already in ACR, skip building and deploy in ~2 minutes:
+
+```bash
+# Set Azure OpenAI credentials
+export AZUREOPENAI_API_KEY=your-azure-openai-api-key
+export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com
+
+# Deploy with pre-built images
+make aks-deploy-only
+
+# Or specify a specific version
+make VERSION=v0.0.0-70db161 aks-deploy-only
+```
+
 ## Step-by-Step Deployment
 
 If you prefer more control, you can run each step separately:
@@ -95,6 +111,33 @@ make helm-install-aks
 ```
 
 This will install kagent to your AKS cluster in the `kagent` namespace with Azure OpenAI as the default provider.
+
+### Step 3: Deploy Using Pre-Built Images (Skip Building)
+
+If images are already in ACR from a previous build, you can skip the build step and deploy directly (~2 minutes instead of ~40 minutes):
+
+```bash
+# Set your Azure OpenAI configuration (required)
+export AZUREOPENAI_API_KEY=your-azure-openai-api-key
+export AZUREOPENAI_ENDPOINT=https://your-resource.openai.azure.com
+
+# Deploy with auto-detected version from git
+make aks-deploy-only
+
+# Or specify a version that exists in ACR
+make VERSION=v0.0.0-70db161 aks-deploy-only
+```
+
+**Find available image versions in ACR:**
+```bash
+az acr repository show-tags --name obscr --repository kagent-dev/kagent/controller
+```
+
+**When to use `aks-deploy-only`:**
+- Images are already in ACR from a previous build
+- You're updating configuration without code changes
+- You're deploying the same version to a different cluster
+- You want to save ~40 minutes of build time
 
 ## Configuration Options
 
@@ -274,6 +317,8 @@ make helm-uninstall-aks
 | `aks-port-forward-cli` | Port forward CLI to localhost:8083 |
 | `aks-check-context` | Verify kubectl context (safety check) |
 | `aks-deploy-all` | Complete deployment (build + deploy) |
+| `aks-deploy-only` | Deploy using pre-built images from ACR (skips building) |
+| `aks-create-acr-secret` | Create ACR image pull secret |
 
 ## Troubleshooting
 
