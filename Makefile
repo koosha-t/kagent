@@ -35,6 +35,8 @@ KIND_IMAGE_VERSION ?= 1.34.0
 ACR_REGISTRY ?= obscr.azurecr.io
 ACR_REPO ?= kagent-dev/kagent
 ACR_BUILD_ARGS ?= --push --platform linux/amd64,linux/arm64
+ACR_USERNAME ?=
+ACR_PASSWORD ?=
 
 # AKS deployment configuration
 AKS_SERVICE_TYPE ?= ClusterIP
@@ -46,6 +48,12 @@ AZUREOPENAI_ENDPOINT ?=
 AZUREOPENAI_DEPLOYMENT ?=
 AZUREOPENAI_API_VERSION ?= 2024-08-01-preview
 AZUREOPENAI_MODEL ?= gpt-4o
+
+# Load environment variables from kinagent/.env if it exists
+ifneq (,$(wildcard kinagent/.env))
+    include kinagent/.env
+    export
+endif
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -506,8 +514,25 @@ aks-check-context:
 		exit 1; \
 	fi
 
+.PHONY: aks-create-acr-secret
+aks-create-acr-secret:
+	@echo "Creating ACR image pull secret..."
+	@if [ -z "$(ACR_USERNAME)" ] || [ -z "$(ACR_PASSWORD)" ]; then \
+		echo "Error: ACR_USERNAME and ACR_PASSWORD environment variables must be set"; \
+		echo "Run: export ACR_USERNAME=<username> ACR_PASSWORD=<password>"; \
+		exit 1; \
+	fi
+	@kubectl create namespace $(AKS_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	@kubectl create secret docker-registry acr-secret \
+		--namespace $(AKS_NAMESPACE) \
+		--docker-server=$(ACR_REGISTRY) \
+		--docker-username=$(ACR_USERNAME) \
+		--docker-password=$(ACR_PASSWORD) \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "ACR secret created successfully"
+
 .PHONY: helm-install-aks
-helm-install-aks: helm-version check-aks-api-key aks-check-context
+helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-acr-secret
 	@echo "Installing kagent to AKS cluster using ACR images..."
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace $(AKS_NAMESPACE) \
@@ -526,6 +551,7 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context
 		--set registry=$(ACR_REGISTRY) \
 		--set imagePullPolicy=IfNotPresent \
 		--set tag=$(VERSION) \
+		--set imagePullSecrets[0].name=acr-secret \
 		--set controller.image.pullPolicy=IfNotPresent \
 		--set ui.image.pullPolicy=IfNotPresent \
 		--set controller.service.type=$(AKS_SERVICE_TYPE) \
@@ -575,6 +601,22 @@ aks-deploy-all: build-acr helm-install-aks
 	@echo ""
 	@echo "Images pushed to: $(ACR_REGISTRY)/$(ACR_REPO)"
 	@echo "Deployed to namespace: $(AKS_NAMESPACE)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  - Access UI: make aks-port-forward-ui"
+	@echo "  - Access CLI: make aks-port-forward-cli"
+	@echo ""
+
+.PHONY: aks-deploy-only
+aks-deploy-only: helm-install-aks
+	@echo ""
+	@echo "=========================================="
+	@echo "Deployed using pre-built images"
+	@echo "=========================================="
+	@echo ""
+	@echo "Registry: $(ACR_REGISTRY)/$(ACR_REPO)"
+	@echo "Version: $(VERSION)"
+	@echo "Namespace: $(AKS_NAMESPACE)"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  - Access UI: make aks-port-forward-ui"

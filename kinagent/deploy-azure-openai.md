@@ -1,5 +1,23 @@
 # Deploy Kagent with Azure OpenAI
 
+## Prerequisites
+
+### 1. Set up environment variables
+
+Copy the template and fill in your values:
+
+```bash
+cp kinagent/.env.template kinagent/.env
+```
+
+Edit `kinagent/.env` with your actual values:
+- **ACR_USERNAME** and **ACR_PASSWORD**: Azure Container Registry credentials
+- **AZUREOPENAI_API_KEY**: Your Azure OpenAI API key
+- **AZUREOPENAI_ENDPOINT**: Your Azure OpenAI endpoint (e.g., `https://your-resource.openai.azure.com/`)
+- **AZUREOPENAI_DEPLOYMENT**: Your deployment name
+
+The Makefile will automatically load these variables from `kinagent/.env`.
+
 ## Build and Push Images to ACR
 
 ### Option 1: Using the build script (recommended)
@@ -43,32 +61,44 @@ docker push $ACR_REGISTRY/kagent-dev/kagent/app:v0.0.0-$VERSION
 docker push $ACR_REGISTRY/kagent-dev/kagent/kagent-adk:v0.0.0-$VERSION
 ```
 
-## Installation
+## Configure ACR Access
+
+The image pull secret will be created automatically when you run `make aks-deploy-all`.
+
+If you need to create it manually:
 
 ```bash
-# Build Helm charts (required before first installation)
-make helm-version
+# Make sure ACR_USERNAME and ACR_PASSWORD are set in kinagent/.env
+make aks-create-acr-secret
+```
 
-# Create namespace
-kubectl create namespace kagent
+## Installation
 
-# Install CRDs
-helm install kagent-crds ./helm/kagent-crds/ --namespace kagent
+All environment variables are loaded automatically from `kinagent/.env`.
 
-# Set your Azure OpenAI credentials
-export AZUREOPENAI_API_KEY=your-azure-api-key
+### Option 1: Build and Deploy (First Time)
 
-# Install Kagent with Azure OpenAI
-helm install kagent ./helm/kagent/ \
-  --namespace kagent \
-  -f kinagent/kinagent-values.yaml \
-  --set registry=$ACR_REGISTRY \
-  --set tag=v0.0.0-$VERSION \
-  --set providers.default=azureOpenAI \
-  --set providers.azureOpenAI.apiKey=$AZUREOPENAI_API_KEY \
-  --set providers.azureOpenAI.config.apiVersion=2023-05-15 \
-  --set providers.azureOpenAI.config.azureEndpoint=https://your-resource.openai.azure.com \
-  --set providers.azureOpenAI.config.azureDeployment=your-deployment-name
+Builds images, pushes to ACR, and deploys to AKS (~40 minutes):
+
+```bash
+make aks-deploy-all
+```
+
+### Option 2: Deploy Only (Using Pre-Built Images)
+
+If images are already in ACR, skip building and deploy directly (~2 minutes):
+
+```bash
+# Deploy with auto-detected version from git
+make aks-deploy-only
+
+# Or specify a version that exists in ACR
+make VERSION=v0.0.0-70db161 aks-deploy-only
+```
+
+**Find available versions in ACR:**
+```bash
+az acr repository show-tags --name obscr --repository kagent-dev/kagent/controller
 ```
 
 ## Verify Installation

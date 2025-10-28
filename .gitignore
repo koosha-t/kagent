@@ -1,5 +1,7 @@
 ### dotenv template
 python/.env
+.env 
+
 
 test_results
 
