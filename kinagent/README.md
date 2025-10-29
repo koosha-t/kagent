@@ -43,3 +43,9 @@ make VERSION=v0.0.0-70db161 aks-deploy-only
 make aks-port-forward-ui
 # Visit http://localhost:8082
 ```
+
+## Uninstall
+
+```bash
+make helm-uninstall-aks
+```
