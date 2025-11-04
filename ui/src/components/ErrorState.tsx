@@ -14,7 +14,7 @@ export function ErrorState({ message, showHomeButton = true }: ErrorStateProps) 
       <div className="w-full max-w-md">
         <div className="border rounded-lg p-6 w-full shadow-lg">
           <div className="flex justify-center mb-6">
-            <KagentLogo className="w-24 h-auto" animate={true} />
+            <KagentLogo className="w-24 h-auto" />
           </div>
 
           <h2 className="text-red-500 font-semibold text-lg text-center py-2">Error Encountered</h2>

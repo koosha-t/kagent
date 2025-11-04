@@ -507,6 +507,13 @@ build-acr: buildx-create acr-login controller-manifests
 	@echo "App Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)"
 	@echo "Kagent ADK Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)"
 
+.PHONY: build-ui-acr
+build-ui-acr: buildx-create acr-login
+	@echo "Building and pushing UI image to Azure Container Registry: $(ACR_REGISTRY)"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG) -f ui/Dockerfile ./ui
+	@echo "UI build completed successfully."
+	@echo "UI Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
+
 .PHONY: aks-check-context
 aks-check-context:
 	@echo "Checking current kubectl context..."
@@ -597,6 +604,29 @@ aks-port-forward-cli:
 	@echo "Port forwarding kagent CLI to localhost:8083"
 	@echo "Press Ctrl+C to stop port forwarding."
 	kubectl port-forward -n $(AKS_NAMESPACE) service/kagent-controller 8083:8083
+
+.PHONY: aks-update-ui
+aks-update-ui:
+	@echo "Redeploying kagent UI on AKS..."
+	kubectl rollout restart deployment/kagent-ui -n $(AKS_NAMESPACE)
+	@echo "Waiting for rollout to complete..."
+	kubectl rollout status deployment/kagent-ui -n $(AKS_NAMESPACE)
+	@echo ""
+	@echo "UI successfully redeployed!"
+	@echo "Access UI: make aks-port-forward-ui"
+
+.PHONY: aks-update-ui-all
+aks-update-ui-all: build-ui-acr aks-update-ui
+	@echo ""
+	@echo "=========================================="
+	@echo "UI update to AKS complete!"
+	@echo "=========================================="
+	@echo ""
+	@echo "UI Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
+	@echo "Namespace: $(AKS_NAMESPACE)"
+	@echo ""
+	@echo "Access UI: make aks-port-forward-ui"
+	@echo ""
 
 .PHONY: aks-deploy-all
 aks-deploy-all: build-acr helm-install-aks
