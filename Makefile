@@ -608,6 +608,9 @@ aks-port-forward-cli:
 .PHONY: aks-update-ui
 aks-update-ui:
 	@echo "Redeploying kagent UI on AKS..."
+	@echo "Setting imagePullPolicy to Always to force image pull..."
+	kubectl patch deployment kagent-ui -n $(AKS_NAMESPACE) -p '{"spec":{"template":{"spec":{"containers":[{"name":"ui","imagePullPolicy":"Always"}]}}}}'
+	@echo "Triggering rollout restart..."
 	kubectl rollout restart deployment/kagent-ui -n $(AKS_NAMESPACE)
 	@echo "Waiting for rollout to complete..."
 	kubectl rollout status deployment/kagent-ui -n $(AKS_NAMESPACE)
