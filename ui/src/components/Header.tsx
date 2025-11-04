@@ -32,7 +32,7 @@ export function Header() {
       <div className="max-w-6xl mx-auto px-4 md:px-6">
         <div className="flex justify-between items-center">
           <Link href="/">
-            <KAgentLogoWithText className="h-40 w-auto" />
+            <KAgentLogoWithText className="h-32 w-auto" />
           </Link>
           
           {/* Mobile menu button */}
