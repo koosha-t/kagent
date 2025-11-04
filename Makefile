@@ -608,14 +608,15 @@ aks-port-forward-cli:
 .PHONY: aks-update-ui
 aks-update-ui:
 	@echo "Redeploying kagent UI on AKS..."
+	@echo "Updating UI image to: $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
+	kubectl set image deployment/kagent-ui -n $(AKS_NAMESPACE) ui=$(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 	@echo "Setting imagePullPolicy to Always to force image pull..."
 	kubectl patch deployment kagent-ui -n $(AKS_NAMESPACE) -p '{"spec":{"template":{"spec":{"containers":[{"name":"ui","imagePullPolicy":"Always"}]}}}}'
-	@echo "Triggering rollout restart..."
-	kubectl rollout restart deployment/kagent-ui -n $(AKS_NAMESPACE)
 	@echo "Waiting for rollout to complete..."
 	kubectl rollout status deployment/kagent-ui -n $(AKS_NAMESPACE)
 	@echo ""
 	@echo "UI successfully redeployed!"
+	@echo "New image: $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
 	@echo "Access UI: make aks-port-forward-ui"
 
 .PHONY: aks-update-ui-all
