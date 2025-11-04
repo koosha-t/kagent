@@ -350,16 +350,141 @@ querydoc:
 
 otel:
   tracing:
-    enabled: false
+    enabled: true  # Enabled by default to collect traces from ADK agents
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        # Service name will be: {{ release-name }}-otel-collector.{{ namespace }}
+        # For default release "kagent" in namespace "kagent": kagent-otel-collector.kagent:4317
+        endpoint: ""  # Auto-configured by controller based on otelCollector service
         timeout: 15
         insecure: true
   logging:
-    enabled: false
+    enabled: true  # Enabled by default for GenAI input/output logging
     exporter:
       otlp:
-        endpoint: http://host.docker.internal:4317
+        endpoint: ""  # Auto-configured by controller based on otelCollector service
         timeout: 15
         insecure: true
+
+# OpenTelemetry Collector Configuration
+otelCollector:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.96.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  service:
+    type: ClusterIP
+    ports:
+      otlpGrpc: 4317
+      otlpHttp: 4318
+      metrics: 8888
+
+  config:
+    # Collector configuration (can be overridden)
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+
+      memory_limiter:
+        limit_mib: 512
+        spike_limit_mib: 128
+        check_interval: 5s
+
+      attributes:
+        actions:
+          - key: k8s.cluster.name
+            value: kagent-cluster
+            action: insert
+
+    exporters:
+      # Console exporter for debugging
+      logging:
+        loglevel: info
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+      # Jaeger exporter (OTLP protocol)
+      # Automatically configured when jaeger.enabled=true
+      # Endpoint will be: {{ release-name }}-jaeger.{{ namespace }}:4317
+      otlp/jaeger:
+        endpoint: ""  # Auto-configured by template
+        tls:
+          insecure: true
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, attributes]
+          exporters: [logging]  # Jaeger exporter added dynamically when enabled
+
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}
+
+# Jaeger Tracing UI Configuration
+jaeger:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: jaegertracing/jaeger
+    tag: "2.7.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  service:
+    type: ClusterIP
+    ports:
+      ui: 16686           # Jaeger UI
+      otlpGrpc: 4317      # OTLP collector (gRPC)
+      otlpHttp: 4318      # OTLP collector (HTTP)
+      jaegerGrpc: 14250   # Legacy Jaeger gRPC
+      health: 14269       # Health check
+
+  storage:
+    type: memory  # Options: memory, badger
+    badger:
+      ephemeral: false
+      directory: /badger/data
+
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}

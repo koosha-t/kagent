@@ -1,0 +1,103 @@
+{{- if .Values.jaeger.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kagent.fullname" . }}-jaeger
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+spec:
+  replicas: {{ .Values.jaeger.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kagent.jaeger.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "kagent.jaeger.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.jaeger.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.jaeger.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: jaeger
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.jaeger.image.registry }}
+          image: "{{ .Values.jaeger.image.registry }}/{{ .Values.jaeger.image.repository }}:{{ .Values.jaeger.image.tag }}"
+          {{- else }}
+          image: "{{ .Values.jaeger.image.repository }}:{{ .Values.jaeger.image.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.jaeger.image.pullPolicy | default .Values.imagePullPolicy }}
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            - name: METRICS_STORAGE_TYPE
+              value: prometheus
+            - name: SPAN_STORAGE_TYPE
+              value: {{ .Values.jaeger.storage.type }}
+            {{- if eq .Values.jaeger.storage.type "badger" }}
+            - name: BADGER_EPHEMERAL
+              value: {{ .Values.jaeger.storage.badger.ephemeral | quote }}
+            - name: BADGER_DIRECTORY_VALUE
+              value: {{ .Values.jaeger.storage.badger.directory }}
+            - name: BADGER_DIRECTORY_KEY
+              value: {{ .Values.jaeger.storage.badger.directory }}/keys
+            {{- end }}
+          ports:
+            - name: ui
+              containerPort: {{ .Values.jaeger.service.ports.ui }}
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: {{ .Values.jaeger.service.ports.otlpGrpc }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ .Values.jaeger.service.ports.otlpHttp }}
+              protocol: TCP
+            - name: jaeger-grpc
+              containerPort: {{ .Values.jaeger.service.ports.jaegerGrpc }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.jaeger.service.ports.health }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.jaeger.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: ui
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: ui
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- if and (eq .Values.jaeger.storage.type "badger") (not .Values.jaeger.storage.badger.ephemeral) }}
+          volumeMounts:
+            - name: badger-data
+              mountPath: {{ .Values.jaeger.storage.badger.directory }}
+          {{- end }}
+      {{- if and (eq .Values.jaeger.storage.type "badger") (not .Values.jaeger.storage.badger.ephemeral) }}
+      volumes:
+        - name: badger-data
+          persistentVolumeClaim:
+            claimName: {{ include "kagent.fullname" . }}-jaeger-badger
+      {{- end }}
+{{- end }}

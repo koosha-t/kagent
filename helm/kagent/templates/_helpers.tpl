@@ -84,6 +84,22 @@ app.kubernetes.io/component: engine
 {{- end }}
 
 {{/*
+OTel Collector selector labels
+*/}}
+{{- define "kagent.otelCollector.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: otel-collector
+{{- end }}
+
+{{/*
+Jaeger selector labels
+*/}}
+{{- define "kagent.jaeger.selectorLabels" -}}
+{{ include "kagent.selectorLabels" . }}
+app.kubernetes.io/component: jaeger
+{{- end }}
+
+{{/*
 Controller labels
 */}}
 {{- define "kagent.controller.labels" -}}

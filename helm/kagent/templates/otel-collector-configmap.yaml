@@ -1,0 +1,41 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-otel-collector
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  collector.yaml: |
+    {{- if .Values.otelCollector.config.extensions }}
+    extensions:
+      {{- toYaml .Values.otelCollector.config.extensions | nindent 6 }}
+    {{- end }}
+
+    receivers:
+      {{- toYaml .Values.otelCollector.config.receivers | nindent 6 }}
+
+    processors:
+      {{- toYaml .Values.otelCollector.config.processors | nindent 6 }}
+
+    exporters:
+      {{- $exporters := .Values.otelCollector.config.exporters }}
+      {{- if .Values.jaeger.enabled }}
+      {{- $jaegerEndpoint := printf "%s-jaeger.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (int .Values.jaeger.service.ports.otlpGrpc) }}
+      {{- $jaegerExporter := index $exporters "otlp/jaeger" }}
+      {{- $_ := set $jaegerExporter "endpoint" $jaegerEndpoint }}
+      {{- end }}
+      {{- toYaml $exporters | nindent 6 }}
+
+    service:
+      {{- $service := deepCopy .Values.otelCollector.config.service }}
+      {{- if .Values.jaeger.enabled }}
+      {{- if not (has "otlp/jaeger" $service.pipelines.traces.exporters) }}
+      {{- $exportersList := append $service.pipelines.traces.exporters "otlp/jaeger" }}
+      {{- $_ := set $service.pipelines.traces "exporters" $exportersList }}
+      {{- end }}
+      {{- end }}
+      {{- toYaml $service | nindent 6 }}
+{{- end }}

@@ -93,9 +93,9 @@ spec:
             - name: OTEL_TRACING_ENABLED
               value: {{ .Values.otel.tracing.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | default (printf "http://%s-otel-collector.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (int .Values.otelCollector.service.ports.otlpGrpc)) | quote }}
             - name: OTEL_TRACING_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | quote }}
+              value: {{ .Values.otel.tracing.exporter.otlp.endpoint | default (printf "http://%s-otel-collector.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (int .Values.otelCollector.service.ports.otlpGrpc)) | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_TIMEOUT
               value: {{ .Values.otel.tracing.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_TRACES_INSECURE
@@ -103,7 +103,7 @@ spec:
             - name: OTEL_LOGGING_ENABLED
               value: {{ .Values.otel.logging.enabled | quote }}
             - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-              value: {{ .Values.otel.logging.exporter.otlp.endpoint | quote }}
+              value: {{ .Values.otel.logging.exporter.otlp.endpoint | default (printf "http://%s-otel-collector.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (int .Values.otelCollector.service.ports.otlpGrpc)) | quote }}
             - name: OTEL_EXPORTER_OTLP_LOGS_TIMEOUT
               value: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
             - name: OTEL_EXPORTER_OTLP_LOGS_INSECURE
