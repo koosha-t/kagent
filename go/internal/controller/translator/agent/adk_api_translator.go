@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -120,7 +121,7 @@ func (a *adkApiTranslator) TranslateAgent(
 	switch agent.Spec.Type {
 	case v1alpha2.AgentType_Declarative:
 
-		cfg, card, mdd, err := a.translateInlineAgent(ctx, agent)
+		cfg, card, mdd, secretHashBytes, err := a.translateInlineAgent(ctx, agent)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +129,7 @@ func (a *adkApiTranslator) TranslateAgent(
 		if err != nil {
 			return nil, err
 		}
-		return a.buildManifest(ctx, agent, dep, cfg, card)
+		return a.buildManifest(ctx, agent, dep, cfg, card, secretHashBytes)
 
 	case v1alpha2.AgentType_BYO:
 
@@ -151,7 +152,7 @@ func (a *adkApiTranslator) TranslateAgent(
 			DefaultInputModes:  []string{"text"},
 			DefaultOutputModes: []string{"text"},
 		}
-		return a.buildManifest(ctx, agent, dep, nil, agentCard)
+		return a.buildManifest(ctx, agent, dep, nil, agentCard, nil)
 
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", agent.Spec.Type)
@@ -234,11 +235,12 @@ func (a *adkApiTranslator) buildManifest(
 	dep *resolvedDeployment,
 	cfg *adk.AgentConfig, // nil for BYO
 	card *server.AgentCard, // nil for BYO
+	modelConfigSecretHashBytes []byte, // nil for BYO
 ) (*AgentOutputs, error) {
 	outputs := &AgentOutputs{}
 
 	// Optional config/card for Inline
-	var configHash uint64
+	var cfgHash uint64
 	var secretVol []corev1.Volume
 	var secretMounts []corev1.VolumeMount
 	var cfgJson string
@@ -252,7 +254,12 @@ func (a *adkApiTranslator) buildManifest(
 		if err != nil {
 			return nil, err
 		}
-		configHash = computeConfigHash(bCfg, bCard)
+		// Include secret hash bytes in config hash to trigger redeployment on secret changes
+		secretData := modelConfigSecretHashBytes
+		if secretData == nil {
+			secretData = []byte{}
+		}
+		cfgHash = computeConfigHash(bCfg, bCard, secretData)
 
 		cfgJson = string(bCfg)
 		agentCard = string(bCard)
@@ -411,8 +418,9 @@ func (a *adkApiTranslator) buildManifest(
 	if podTemplateAnnotations == nil {
 		podTemplateAnnotations = map[string]string{}
 	}
-	// Add config hash annotation to pod template to force rollout on config changes
-	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	// Add hash annotations to pod template to force rollout on agent config or model config secret changes
+	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", cfgHash)
+
 	var securityContext *corev1.SecurityContext
 	if needSandbox {
 		securityContext = &corev1.SecurityContext{
@@ -500,16 +508,16 @@ func (a *adkApiTranslator) buildManifest(
 	return outputs, a.runPlugins(ctx, agent, outputs)
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha2.Agent) (*adk.AgentConfig, *server.AgentCard, *modelDeploymentData, []byte, error) {
 
-	model, mdd, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
+	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.Namespace, agent.Spec.Declarative.ModelConfig)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	systemMessage, err := a.resolveSystemMessage(ctx, agent)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
@@ -545,7 +553,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		case tool.McpServer != nil:
 			err := a.translateMCPServerTarget(ctx, cfg, agent.Namespace, tool.McpServer, tool.HeadersFrom)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 		case tool.Agent != nil:
 			agentRef := types.NamespacedName{
@@ -554,14 +562,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 			}
 
 			if agentRef.Namespace == agent.Namespace && agentRef.Name == agent.Name {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
+				return nil, nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
 			}
 
 			// Translate a nested tool
 			toolAgent := &v1alpha2.Agent{}
 			err := a.kube.Get(ctx, agentRef, toolAgent)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 
 			switch toolAgent.Spec.Type {
@@ -569,7 +577,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 				url := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
 				headers, err := tool.ResolveHeaders(ctx, a.kube, agent.Namespace)
 				if err != nil {
-					return nil, nil, nil, err
+					return nil, nil, nil, nil, err
 				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
@@ -579,15 +587,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					Description: toolAgent.Spec.Description,
 				})
 			default:
-				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
+				return nil, nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
 			}
 
 		default:
-			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
+			return nil, nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
 		}
 	}
 
-	return cfg, agentCard, mdd, nil
+	return cfg, agentCard, mdd, secretHashBytes, nil
 }
 
 func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1alpha2.Agent) (string, error) {
@@ -602,16 +610,80 @@ func (a *adkApiTranslator) resolveSystemMessage(ctx context.Context, agent *v1al
 
 const (
 	googleCredsVolumeName = "google-creds"
+	tlsCACertVolumeName   = "tls-ca-cert"
+	tlsCACertMountPath    = "/etc/ssl/certs/custom"
 )
 
-func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, error) {
+// populateTLSFields populates TLS configuration fields in the BaseModel
+// from the ModelConfig TLS spec.
+func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
+
+	// Set TLS configuration fields in BaseModel
+	baseModel.TLSDisableVerify = &tlsConfig.DisableVerify
+	baseModel.TLSDisableSystemCAs = &tlsConfig.DisableSystemCAs
+
+	// Set CA cert path if Secret and key are both specified
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
+		certPath := fmt.Sprintf("%s/%s", tlsCACertMountPath, tlsConfig.CACertSecretKey)
+		baseModel.TLSCACertPath = &certPath
+	}
+}
+
+// addTLSConfiguration adds TLS certificate volume mounts to modelDeploymentData
+// when TLS configuration is present in the ModelConfig.
+// Note: TLS configuration fields are now included in agent config JSON via BaseModel,
+// so this function only handles volume mounting.
+func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+	if tlsConfig == nil {
+		return
+	}
+
+	// Add Secret volume mount if both CA certificate Secret and key are specified
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
+		// Add volume from Secret
+		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
+			Name: tlsCACertVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tlsConfig.CACertSecretRef,
+					DefaultMode: ptr.To(int32(0444)), // Read-only for all users
+				},
+			},
+		})
+
+		// Add volume mount
+		modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
+			Name:      tlsCACertVolumeName,
+			MountPath: tlsCACertMountPath,
+			ReadOnly:  true,
+		})
+	}
+}
+
+func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
 	model := &v1alpha2.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+
+	// Decode hex-encoded secret hash to bytes
+	var secretHashBytes []byte
+	if model.Status.SecretHash != "" {
+		decoded, err := hex.DecodeString(model.Status.SecretHash)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to decode secret hash: %w", err)
+		}
+		secretHashBytes = decoded
 	}
 
 	modelDeploymentData := &modelDeploymentData{}
+
+	// Add TLS configuration if present
+	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
 
 	switch model.Spec.Provider {
 	case v1alpha2.ModelProviderOpenAI:
@@ -634,6 +706,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+
 		if model.Spec.OpenAI != nil {
 			openai.BaseUrl = model.Spec.OpenAI.BaseURL
 			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
@@ -665,7 +740,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				})
 			}
 		}
-		return openai, modelDeploymentData, nil
+		return openai, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropic:
 		if model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -686,13 +761,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+
 		if model.Spec.Anthropic != nil {
 			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
 		}
-		return anthropic, modelDeploymentData, nil
+		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
-			return nil, nil, fmt.Errorf("AzureOpenAI model config is required")
+			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: "AZURE_OPENAI_API_KEY",
@@ -729,10 +807,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		return azureOpenAI, modelDeploymentData, nil
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
+
+		return azureOpenAI, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
-			return nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
+			return nil, nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "GOOGLE_CLOUD_PROJECT",
@@ -770,10 +851,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		return gemini, modelDeploymentData, nil
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+
+		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
-			return nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
+			return nil, nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "GOOGLE_CLOUD_PROJECT",
@@ -807,10 +891,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		return anthropic, modelDeploymentData, nil
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+
+		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
-			return nil, nil, fmt.Errorf("ollama model config is required")
+			return nil, nil, nil, fmt.Errorf("ollama model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  "OLLAMA_API_BASE",
@@ -822,7 +909,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		return ollama, modelDeploymentData, nil
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
+
+		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: "GOOGLE_API_KEY",
@@ -841,9 +931,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		return gemini, modelDeploymentData, nil
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+
+		return gemini, modelDeploymentData, secretHashBytes, nil
 	}
-	return nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
+
+	return nil, nil, nil, fmt.Errorf("unknown model provider: %s", model.Spec.Provider)
 }
 
 func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, tool *v1alpha2.RemoteMCPServerSpec, namespace string) (*adk.StreamableHTTPConnectionParams, error) {
@@ -1050,10 +1144,11 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 
 // Helper functions
 
-func computeConfigHash(config, card []byte) uint64 {
+func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	hasher := sha256.New()
-	hasher.Write(config)
-	hasher.Write(card)
+	hasher.Write(agentCfg)
+	hasher.Write(agentCard)
+	hasher.Write(secretData)
 	hash := hasher.Sum(nil)
 	return binary.BigEndian.Uint64(hash[:8])
 }
