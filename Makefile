@@ -574,6 +574,10 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
+		--set otel.tracing.enabled=true \
+		--set otel.tracing.exporter.otlp.endpoint=http://jaeger-collector.kagent.svc.cluster.local:4317 \
+		--set otel.tracing.exporter.otlp.timeout=15 \
+		--set otel.tracing.exporter.otlp.insecure=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
 	@echo ""
 	@echo "Kagent successfully installed to AKS!"
@@ -598,6 +602,24 @@ aks-port-forward-cli:
 	@echo "Port forwarding kagent CLI to localhost:8083"
 	@echo "Press Ctrl+C to stop port forwarding."
 	kubectl port-forward -n $(AKS_NAMESPACE) service/kagent-controller 8083:8083
+
+.PHONY: aks-deploy-jaeger
+aks-deploy-jaeger:
+	@echo "Deploying Jaeger for tracing to AKS cluster..."
+	kubectl create namespace $(AKS_NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
+	kubectl apply -f contrib/addons/jaeger.yaml
+	@echo "Waiting for Jaeger to be ready..."
+	kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=jaeger -n $(AKS_NAMESPACE) --timeout=120s
+	@echo ""
+	@echo "Jaeger deployed successfully!"
+	@echo "Access Jaeger UI: make aks-port-forward-jaeger"
+
+.PHONY: aks-port-forward-jaeger
+aks-port-forward-jaeger:
+	@echo "Port forwarding Jaeger UI to http://localhost:16686/"
+	@echo "Press Ctrl+C to stop port forwarding."
+	open http://localhost:16686/ || true
+	kubectl port-forward -n $(AKS_NAMESPACE) service/jaeger-query 16686:16686
 
 .PHONY: aks-deploy-all
 aks-deploy-all: build-acr helm-install-aks
