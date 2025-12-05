@@ -42,6 +42,7 @@ ACR_PASSWORD ?=
 AKS_SERVICE_TYPE ?= ClusterIP
 AKS_NAMESPACE ?= kagent
 AKS_DEFAULT_MODEL_PROVIDER ?= azureOpenAI
+OTEL_ENDPOINT ?= http://otel-collector.merlin-dev.svc.cluster.local:4317
 
 # Azure OpenAI specific configuration
 AZUREOPENAI_ENDPOINT ?=
@@ -575,7 +576,7 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		--set otel.tracing.enabled=true \
-		--set otel.tracing.exporter.otlp.endpoint=http://jaeger-collector.kagent.svc.cluster.local:4317 \
+		--set otel.tracing.exporter.otlp.endpoint=$(OTEL_ENDPOINT) \
 		--set otel.tracing.exporter.otlp.timeout=15 \
 		--set otel.tracing.exporter.otlp.insecure=true \
 		$(KAGENT_HELM_EXTRA_ARGS)
