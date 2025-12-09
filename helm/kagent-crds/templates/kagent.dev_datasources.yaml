@@ -1,0 +1,266 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: datasources.kagent.dev
+spec:
+  group: kagent.dev
+  names:
+    categories:
+    - kagent
+    kind: DataSource
+    listKind: DataSourceList
+    plural: datasources
+    shortNames:
+    - ds
+    singular: datasource
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.provider
+      name: Provider
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Connected')].status
+      name: Connected
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - jsonPath: .status.generatedMCPServer
+      name: MCPServer
+      type: string
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: |-
+          DataSource is the Schema for the datasources API.
+          It represents a connection to a data fabric (e.g., Databricks) and enables
+          agents to query semantic models through an auto-generated HTTP MCP server.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              DataSourceSpec defines the desired state of DataSource.
+              A DataSource represents a connection to a data fabric (e.g., Databricks)
+              and the semantic models to expose to agents via an auto-generated ToolServer.
+            properties:
+              databricks:
+                description: |-
+                  Databricks contains Databricks-specific configuration.
+                  Required when provider is Databricks.
+                properties:
+                  catalog:
+                    description: Catalog is the Unity Catalog name to use.
+                    minLength: 1
+                    type: string
+                  credentialsSecretKey:
+                    description: CredentialsSecretKey is the key within the secret
+                      that contains the token.
+                    minLength: 1
+                    type: string
+                  credentialsSecretRef:
+                    description: |-
+                      CredentialsSecretRef is the name of the Secret containing the Databricks token.
+                      The secret must exist in the same namespace as the DataSource.
+                    minLength: 1
+                    type: string
+                  schema:
+                    description: |-
+                      Schema optionally limits discovery to a specific schema within the catalog.
+                      If not set, all schemas in the catalog are searched for tables.
+                    type: string
+                  warehouseId:
+                    description: |-
+                      WarehouseID is the SQL Warehouse ID for executing queries.
+                      If not set, serverless SQL will be used (requires serverless SQL to be enabled).
+                    type: string
+                  workspaceUrl:
+                    description: |-
+                      WorkspaceURL is the Databricks workspace URL.
+                      Example: https://mycompany.cloud.databricks.com
+                    minLength: 1
+                    type: string
+                required:
+                - catalog
+                - credentialsSecretKey
+                - credentialsSecretRef
+                - workspaceUrl
+                type: object
+              provider:
+                default: Databricks
+                description: |-
+                  Provider specifies the data platform type.
+                  Currently only Databricks is supported.
+                enum:
+                - Databricks
+                type: string
+              semanticModels:
+                description: |-
+                  SemanticModels is the list of semantic models to expose via the MCP server.
+                  If empty, all discovered models from the catalog/schema will be exposed.
+                  Users can select specific models after seeing what's available in status.availableModels.
+                items:
+                  description: |-
+                    SemanticModelRef references a semantic model to expose via the MCP server.
+                    Users select these from the discovered models shown in status.availableModels.
+                  properties:
+                    description:
+                      description: |-
+                        Description is a human-readable description for the MCP tool.
+                        If not provided, the description from Unity Catalog will be used.
+                      type: string
+                    name:
+                      description: Name is the semantic model name as it appears in
+                        Unity Catalog.
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+            required:
+            - provider
+            type: object
+            x-kubernetes-validations:
+            - message: databricks config is required when provider is Databricks
+              rule: self.provider == 'Databricks' && has(self.databricks)
+            - message: databricks config must be nil if the provider is not Databricks
+              rule: '!(has(self.databricks) && self.provider != ''Databricks'')'
+          status:
+            description: |-
+              DataSourceStatus defines the observed state of DataSource.
+              This is updated by the controller during reconciliation.
+            properties:
+              availableModels:
+                description: |-
+                  AvailableModels lists all semantic models discovered from the data source.
+                  The UI uses this to show users what models they can select in spec.semanticModels.
+                items:
+                  description: |-
+                    DiscoveredModel represents a semantic model found in Unity Catalog.
+                    These are populated by the controller during reconciliation and displayed
+                    in the UI for users to select which models to expose.
+                  properties:
+                    catalog:
+                      description: Catalog is the Unity Catalog containing the model
+                      type: string
+                    description:
+                      description: Description is the model description from Unity
+                        Catalog
+                      type: string
+                    name:
+                      description: Name is the semantic model name
+                      type: string
+                    schema:
+                      description: Schema is the schema containing the model
+                      type: string
+                  required:
+                  - catalog
+                  - name
+                  - schema
+                  type: object
+                type: array
+              conditions:
+                description: |-
+                  Conditions represent the latest observations of the DataSource's state.
+                  Condition types:
+                  - Connected: whether we can reach the data source (e.g., Databricks workspace)
+                  - Ready: whether the MCP server resources have been created successfully
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              generatedMCPServer:
+                description: |-
+                  GeneratedMCPServer is the name of the auto-generated RemoteMCPServer.
+                  Agents reference this RemoteMCPServer to access the data source tools.
+                  The format is "{datasource-name}-mcp".
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the generation of the spec that was last processed.
+                  Used to detect if the spec has changed since last reconciliation.
+                format: int64
+                type: integer
+              secretHash:
+                description: |-
+                  SecretHash stores a hash of the credentials secret to detect changes.
+                  When the secret changes, the controller will re-reconcile to update the MCP server.
+                type: string
+            required:
+            - observedGeneration
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,67 @@
+# Example: Agent using DataSource for data analysis
+#
+# This example shows how to create an Agent that uses a DataSource-generated
+# ToolServer to query Databricks semantic models.
+#
+# Prerequisites:
+# 1. A DataSource resource created and in Ready state
+# 2. A ModelConfig resource for the LLM (e.g., Azure OpenAI, Anthropic)
+#
+# Usage:
+# 1. First apply the datasource-databricks.yaml example
+# 2. Wait for the DataSource to be Ready:
+#    kubectl wait --for=condition=Ready datasource/sales-databricks
+# 3. Apply this file to create the agent:
+#    kubectl apply -f agent-with-datasource.yaml
+#
+# The agent will have access to tools like:
+# - list_models: List available semantic models
+# - query_model: Natural language queries against models
+# - execute_sql: Direct SQL execution
+# - describe_model: Get model schema details
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: sales-analyst
+  namespace: default
+spec:
+  type: Declarative
+  declarative:
+    # Reference to your ModelConfig (must exist)
+    modelConfig: default-model-config
+
+    # System message defining the agent's behavior
+    systemMessage: |
+      You are a sales data analyst with access to our company's data warehouse
+      through Databricks Unity Catalog.
+
+      Your role is to:
+      - Answer business questions about sales, revenue, and customer metrics
+      - Provide data-driven insights and analysis
+      - Generate reports and summaries on demand
+
+      Available tools:
+      - Use "list_models" to see available semantic models
+      - Use "query_model" for natural language queries (recommended for most queries)
+      - Use "describe_model" to understand available metrics and dimensions
+      - Use "execute_sql" only when you need precise control over the query
+
+      Guidelines:
+      - Always explain your findings clearly
+      - Include relevant numbers and percentages
+      - Mention data sources used in your analysis
+      - If a query fails, try rephrasing or using a different approach
+
+    # Tools available to this agent
+    tools:
+      # Reference the auto-generated ToolServer from the DataSource
+      # The name follows the pattern: {datasource-name}-mcp
+      - toolServer:
+          ref: sales-databricks-mcp
+        # Use all available tools from this ToolServer
+        tools: ["*"]
+
+      # You can also include other ToolServers for additional capabilities
+      # For example, a calculator or web search ToolServer

@@ -1,0 +1,23 @@
+{{- if and .Values.databricks.enabled .Values.databricks.token .Values.databricks.workspaceUrl .Values.databricks.catalog }}
+---
+apiVersion: kagent.dev/v1alpha2
+kind: DataSource
+metadata:
+  name: {{ .Values.databricks.dataSourceName | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  provider: Databricks
+  databricks:
+    workspaceUrl: {{ .Values.databricks.workspaceUrl | quote }}
+    credentialsSecretRef: {{ .Values.databricks.secretName | quote }}
+    credentialsSecretKey: {{ .Values.databricks.secretKey | quote }}
+    catalog: {{ .Values.databricks.catalog | quote }}
+    {{- if .Values.databricks.schema }}
+    schema: {{ .Values.databricks.schema | quote }}
+    {{- end }}
+    {{- if .Values.databricks.warehouseId }}
+    warehouseId: {{ .Values.databricks.warehouseId | quote }}
+    {{- end }}
+{{- end }}

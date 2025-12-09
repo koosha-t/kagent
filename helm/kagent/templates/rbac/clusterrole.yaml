@@ -9,6 +9,7 @@ rules:
   - kagent.dev
   resources:
   - agents
+  - datasources
   - modelconfigs
   - toolservers
   - memories
@@ -22,6 +23,7 @@ rules:
   - kagent.dev
   resources:
   - agents/finalizers
+  - datasources/finalizers
   - modelconfigs/finalizers
   - toolservers/finalizers
   - memories/finalizers
@@ -33,6 +35,7 @@ rules:
   - kagent.dev
   resources:
   - agents/status
+  - datasources/status
   - modelconfigs/status
   - toolservers/status
   - memories/status
@@ -103,6 +106,7 @@ rules:
   - kagent.dev
   resources:
   - agents
+  - datasources
   - modelconfigs
   - toolservers
   - memories
@@ -117,6 +121,7 @@ rules:
   - kagent.dev
   resources:
   - agents/finalizers
+  - datasources/finalizers
   - modelconfigs/finalizers
   - toolservers/finalizers
   - memories/finalizers

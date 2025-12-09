@@ -193,6 +193,32 @@ providers:
     # apiKey: ""
 
 # ==============================================================================
+# DATABRICKS DATASOURCE CONFIGURATION
+# ==============================================================================
+# When enabled, creates a Kubernetes Secret and DataSource CR for Databricks.
+# The DataSource will auto-generate a ToolServer for agents to access semantic models.
+
+databricks:
+  # Enable Databricks DataSource creation (set to true when token is provided)
+  enabled: false
+  # Name of the Kubernetes Secret to create
+  secretName: kagent-databricks
+  # Key within the secret containing the token
+  secretKey: DATABRICKS_TOKEN
+  # Databricks personal access token (will be base64 encoded in the Secret)
+  token: ""
+  # Databricks workspace URL (e.g., https://mycompany.cloud.databricks.com)
+  workspaceUrl: ""
+  # Unity Catalog name
+  catalog: ""
+  # Optional: Schema within the catalog (if empty, all schemas are searched)
+  schema: ""
+  # Optional: SQL Warehouse ID for executing queries (if empty, serverless SQL is used)
+  warehouseId: ""
+  # Name of the DataSource CR to create
+  dataSourceName: default-databricks
+
+# ==============================================================================
 # KMCP
 # ==============================================================================
 

@@ -50,6 +50,13 @@ AZUREOPENAI_DEPLOYMENT ?=
 AZUREOPENAI_API_VERSION ?= 2024-08-01-preview
 AZUREOPENAI_MODEL ?= gpt-4o
 
+# Databricks DataSource configuration
+DATABRICKS_TOKEN ?=
+DATABRICKS_WORKSPACE_URL ?=
+DATABRICKS_CATALOG ?=
+DATABRICKS_SCHEMA ?=
+DATABRICKS_WAREHOUSE_ID ?=
+
 # Load environment variables from kinagent/.env if it exists
 ifneq (,$(wildcard kinagent/.env))
     include kinagent/.env
@@ -604,6 +611,12 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--set otel.tracing.exporter.otlp.endpoint=$(OTEL_ENDPOINT) \
 		--set otel.tracing.exporter.otlp.timeout=15 \
 		--set otel.tracing.exporter.otlp.insecure=true \
+		$(if $(DATABRICKS_TOKEN),--set databricks.enabled=true,) \
+		--set databricks.token=$(DATABRICKS_TOKEN) \
+		--set databricks.workspaceUrl=$(DATABRICKS_WORKSPACE_URL) \
+		--set databricks.catalog=$(DATABRICKS_CATALOG) \
+		--set databricks.schema=$(DATABRICKS_SCHEMA) \
+		--set databricks.warehouseId=$(DATABRICKS_WAREHOUSE_ID) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 	@echo ""
 	@echo "Kagent successfully installed to AKS!"
