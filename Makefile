@@ -9,8 +9,20 @@ BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
+# Image tag can be overridden to use existing images without rebuilding
+# Set IMAGE_TAG in kinagent/.env to deploy with pre-built images
+# If not set, defaults to VERSION (requires images to be built first)
+IMAGE_TAG ?= $(VERSION)
+
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+
+# Smart tag generation based on directory content hash
+# Uses git tree hash of each directory - same code = same hash
+# These are used as defaults when per-component tags are not set in .env
+CONTROLLER_DIR_HASH := $(shell git rev-parse HEAD:go 2>/dev/null | cut -c1-8 || echo "unknown")
+UI_DIR_HASH := $(shell git rev-parse HEAD:ui 2>/dev/null | cut -c1-8 || echo "unknown")
+PYTHON_DIR_HASH := $(shell git rev-parse HEAD:python 2>/dev/null | cut -c1-8 || echo "unknown")
 
 KUBECONFIG_PERM ?= $(shell \
   if [ "$$(uname -s | tr '[:upper:]' '[:lower:]')" = "darwin" ]; then \
@@ -51,6 +63,7 @@ AZUREOPENAI_API_VERSION ?= 2024-08-01-preview
 AZUREOPENAI_MODEL ?= gpt-4o
 
 # Databricks DataSource configuration
+DATABRICKS_DATASOURCE_NAME ?= default-databricks
 DATABRICKS_TOKEN ?=
 DATABRICKS_WORKSPACE_URL ?=
 DATABRICKS_CATALOG ?=
@@ -67,11 +80,27 @@ CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
+DATABRICKS_MCP_IMAGE_NAME ?= databricks-mcp
 
-CONTROLLER_IMAGE_TAG ?= $(VERSION)
-UI_IMAGE_TAG ?= $(VERSION)
-APP_IMAGE_TAG ?= $(VERSION)
-KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+# Per-component image tags
+# For smart builds: defaults to directory hash (auto-detect changes)
+# Can be overridden in kinagent/.env for manual control
+# Set USE_GLOBAL_TAG=true in .env to use IMAGE_TAG for all components (legacy behavior)
+ifeq ($(USE_GLOBAL_TAG),true)
+CONTROLLER_IMAGE_TAG ?= $(IMAGE_TAG)
+UI_IMAGE_TAG ?= $(IMAGE_TAG)
+APP_IMAGE_TAG ?= $(IMAGE_TAG)
+KAGENT_ADK_IMAGE_TAG ?= $(IMAGE_TAG)
+DATABRICKS_MCP_IMAGE_TAG ?= $(IMAGE_TAG)
+else
+CONTROLLER_IMAGE_TAG ?= $(CONTROLLER_DIR_HASH)
+UI_IMAGE_TAG ?= $(UI_DIR_HASH)
+APP_IMAGE_TAG ?= $(PYTHON_DIR_HASH)
+KAGENT_ADK_IMAGE_TAG ?= $(PYTHON_DIR_HASH)
+# Note: databricks-mcp uses APP_IMAGE_TAG because the controller uses the same
+# IMAGE_TAG config for all dynamically spawned images (app agents and mcp servers)
+DATABRICKS_MCP_IMAGE_TAG ?= $(PYTHON_DIR_HASH)
+endif
 
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
@@ -184,7 +213,8 @@ check-api-key:
 .PHONY: buildx-create
 buildx-create:
 	docker buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
-	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
+	docker buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --driver-opt network=host || true
+	docker buildx use $(BUILDX_BUILDER_NAME)
 
 .PHONY: build-all  # for test purpose build all but output to /dev/null
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
@@ -372,7 +402,7 @@ helm-install-provider: helm-version check-api-key
 		--set ui.service.type=LoadBalancer \
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
-		--set tag=$(VERSION) \
+		--set tag=$(IMAGE_TAG) \
 		--set controller.loglevel=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
@@ -541,6 +571,177 @@ build-acr: buildx-create acr-login controller-manifests
 	@echo "App Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)"
 	@echo "Kagent ADK Image: $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)"
 
+##@ ACR Individual Image Builds
+
+.PHONY: build-acr-controller
+build-acr-controller: buildx-create acr-login controller-manifests ## Build and push only controller to ACR
+	@echo "Building controller image: $(ACR_REGISTRY)/$(ACR_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		-t $(ACR_REGISTRY)/$(ACR_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG) \
+		-f go/Dockerfile ./go
+
+.PHONY: build-acr-ui
+build-acr-ui: buildx-create acr-login ## Build and push only UI to ACR
+	@echo "Building UI image: $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		-t $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG) \
+		-f ui/Dockerfile ./ui
+
+.PHONY: build-acr-kagent-adk
+build-acr-kagent-adk: buildx-create acr-login ## Build and push only kagent-adk to ACR
+	@echo "Building kagent-adk image: $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		-t $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG) \
+		-f python/Dockerfile ./python
+
+.PHONY: build-acr-app
+build-acr-app: buildx-create acr-login ## Build and push only app to ACR (kagent-adk must exist)
+	@echo "Building app image: $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)"
+	@echo "Note: Requires kagent-adk:$(KAGENT_ADK_IMAGE_TAG) to exist in ACR"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		--build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) \
+		--build-arg DOCKER_REGISTRY=$(ACR_REGISTRY) \
+		-t $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG) \
+		-f python/Dockerfile.app ./python
+
+.PHONY: build-acr-app-with-adk
+build-acr-app-with-adk: build-acr-kagent-adk build-acr-app ## Build kagent-adk then app (when adk changed)
+
+.PHONY: build-acr-databricks-mcp
+build-acr-databricks-mcp: buildx-create acr-login ## Build and push only databricks-mcp to ACR
+	@echo "Building databricks-mcp image: $(ACR_REGISTRY)/$(ACR_REPO)/$(DATABRICKS_MCP_IMAGE_NAME):$(DATABRICKS_MCP_IMAGE_TAG)"
+	$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		-t $(ACR_REGISTRY)/$(ACR_REPO)/$(DATABRICKS_MCP_IMAGE_NAME):$(DATABRICKS_MCP_IMAGE_TAG) \
+		-f go/cmd/databricks-mcp/Dockerfile ./go
+
+##@ ACR Smart Build (Auto-detect changes)
+
+.PHONY: build-acr-controller-smart
+build-acr-controller-smart: buildx-create acr-login controller-manifests ## Build controller only if tag doesn't exist in ACR
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(CONTROLLER_IMAGE_NAME) 2>/dev/null | grep -q "\"$(CONTROLLER_IMAGE_TAG)\""; then \
+		echo "[SKIP] Controller $(CONTROLLER_IMAGE_TAG) already exists in ACR"; \
+	else \
+		echo "[BUILD] Controller $(CONTROLLER_IMAGE_TAG)"; \
+		$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+			-t $(ACR_REGISTRY)/$(ACR_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG) \
+			-f go/Dockerfile ./go; \
+	fi
+
+.PHONY: build-acr-ui-smart
+build-acr-ui-smart: buildx-create acr-login ## Build UI only if tag doesn't exist in ACR
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(UI_IMAGE_NAME) 2>/dev/null | grep -q "\"$(UI_IMAGE_TAG)\""; then \
+		echo "[SKIP] UI $(UI_IMAGE_TAG) already exists in ACR"; \
+	else \
+		echo "[BUILD] UI $(UI_IMAGE_TAG)"; \
+		$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+			-t $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG) \
+			-f ui/Dockerfile ./ui; \
+	fi
+
+.PHONY: build-acr-kagent-adk-smart
+build-acr-kagent-adk-smart: buildx-create acr-login ## Build kagent-adk only if tag doesn't exist in ACR
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME) 2>/dev/null | grep -q "\"$(KAGENT_ADK_IMAGE_TAG)\""; then \
+		echo "[SKIP] Kagent-ADK $(KAGENT_ADK_IMAGE_TAG) already exists in ACR"; \
+	else \
+		echo "[BUILD] Kagent-ADK $(KAGENT_ADK_IMAGE_TAG)"; \
+		$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+			-t $(ACR_REGISTRY)/$(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG) \
+			-f python/Dockerfile ./python; \
+	fi
+
+.PHONY: build-acr-app-smart
+build-acr-app-smart: buildx-create acr-login build-acr-kagent-adk-smart ## Build app only if tag doesn't exist (ensures kagent-adk exists first)
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(APP_IMAGE_NAME) 2>/dev/null | grep -q "\"$(APP_IMAGE_TAG)\""; then \
+		echo "[SKIP] App $(APP_IMAGE_TAG) already exists in ACR"; \
+	else \
+		echo "[BUILD] App $(APP_IMAGE_TAG)"; \
+		$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+			--build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) \
+			--build-arg DOCKER_REGISTRY=$(ACR_REGISTRY) \
+			-t $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG) \
+			-f python/Dockerfile.app ./python; \
+	fi
+
+.PHONY: build-acr-databricks-mcp-smart
+build-acr-databricks-mcp-smart: buildx-create acr-login ## Build databricks-mcp only if tag doesn't exist in ACR
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(DATABRICKS_MCP_IMAGE_NAME) 2>/dev/null | grep -q "\"$(DATABRICKS_MCP_IMAGE_TAG)\""; then \
+		echo "[SKIP] Databricks-MCP $(DATABRICKS_MCP_IMAGE_TAG) already exists in ACR"; \
+	else \
+		echo "[BUILD] Databricks-MCP $(DATABRICKS_MCP_IMAGE_TAG)"; \
+		$(DOCKER_BUILDER) build $(ACR_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+			-t $(ACR_REGISTRY)/$(ACR_REPO)/$(DATABRICKS_MCP_IMAGE_NAME):$(DATABRICKS_MCP_IMAGE_TAG) \
+			-f go/cmd/databricks-mcp/Dockerfile ./go; \
+	fi
+
+##@ AKS Smart Deployment
+
+.PHONY: aks-smart-deploy
+aks-smart-deploy: acr-login build-acr-controller-smart build-acr-ui-smart build-acr-app-smart build-acr-databricks-mcp-smart helm-install-aks ## Smart deploy: only build changed images, then deploy
+	@echo ""
+	@echo "=========================================="
+	@echo "Smart deployment complete!"
+	@echo "=========================================="
+	@echo "Deployed tags:"
+	@echo "  Controller:     $(CONTROLLER_IMAGE_TAG)"
+	@echo "  UI:             $(UI_IMAGE_TAG)"
+	@echo "  App:            $(APP_IMAGE_TAG)"
+	@echo "  Databricks-MCP: $(DATABRICKS_MCP_IMAGE_TAG)"
+
+##@ ACR Utilities
+
+.PHONY: acr-list-tags
+acr-list-tags: ## List recent tags for all images in ACR
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	echo "=== Controller ===" && az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(CONTROLLER_IMAGE_NAME) --top 5 --orderby time_desc 2>/dev/null || echo "(none)"; \
+	echo "=== UI ===" && az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(UI_IMAGE_NAME) --top 5 --orderby time_desc 2>/dev/null || echo "(none)"; \
+	echo "=== App ===" && az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(APP_IMAGE_NAME) --top 5 --orderby time_desc 2>/dev/null || echo "(none)"; \
+	echo "=== Kagent-ADK ===" && az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(KAGENT_ADK_IMAGE_NAME) --top 5 --orderby time_desc 2>/dev/null || echo "(none)"; \
+	echo "=== Databricks-MCP ===" && az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(DATABRICKS_MCP_IMAGE_NAME) --top 5 --orderby time_desc 2>/dev/null || echo "(none)"
+
+.PHONY: aks-show-images
+aks-show-images: ## Show currently deployed image tags in AKS
+	@echo "Currently deployed images in namespace $(AKS_NAMESPACE):"
+	@echo "  Controller: $$(kubectl get deploy kagent-controller -n $(AKS_NAMESPACE) -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo 'not found')"
+	@echo "  UI:         $$(kubectl get deploy kagent-ui -n $(AKS_NAMESPACE) -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo 'not found')"
+	@echo "  App (cfg):  $$(kubectl get cm kagent-controller -n $(AKS_NAMESPACE) -o jsonpath='{.data.IMAGE_TAG}' 2>/dev/null || echo 'not found')"
+
+.PHONY: aks-show-pending-changes
+aks-show-pending-changes: ## Show which images would be built (dry-run)
+	@echo "Current directory hashes:"
+	@echo "  Controller (go/):         $(CONTROLLER_IMAGE_TAG)"
+	@echo "  UI (ui/):                 $(UI_IMAGE_TAG)"
+	@echo "  App (python/):            $(APP_IMAGE_TAG)"
+	@echo "  Databricks-MCP (python/): $(DATABRICKS_MCP_IMAGE_TAG)  (uses app tag for controller compatibility)"
+	@echo ""
+	@echo "Checking ACR for existing tags..."
+	@ACR_NAME=$$(echo $(ACR_REGISTRY) | cut -d. -f1); \
+	echo ""; \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(CONTROLLER_IMAGE_NAME) 2>/dev/null | grep -q "\"$(CONTROLLER_IMAGE_TAG)\""; then \
+		echo "  Controller:     EXISTS (no build needed)"; \
+	else \
+		echo "  Controller:     MISSING (will build)"; \
+	fi; \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(UI_IMAGE_NAME) 2>/dev/null | grep -q "\"$(UI_IMAGE_TAG)\""; then \
+		echo "  UI:             EXISTS (no build needed)"; \
+	else \
+		echo "  UI:             MISSING (will build)"; \
+	fi; \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(APP_IMAGE_NAME) 2>/dev/null | grep -q "\"$(APP_IMAGE_TAG)\""; then \
+		echo "  App:            EXISTS (no build needed)"; \
+	else \
+		echo "  App:            MISSING (will build)"; \
+	fi; \
+	if az acr repository show-tags --name $$ACR_NAME --repository $(ACR_REPO)/$(DATABRICKS_MCP_IMAGE_NAME) 2>/dev/null | grep -q "\"$(DATABRICKS_MCP_IMAGE_TAG)\""; then \
+		echo "  Databricks-MCP: EXISTS (no build needed)"; \
+	else \
+		echo "  Databricks-MCP: MISSING (will build)"; \
+	fi
+
 .PHONY: aks-check-context
 aks-check-context:
 	@echo "Checking current kubectl context..."
@@ -573,6 +774,7 @@ aks-create-acr-secret:
 .PHONY: helm-install-aks
 helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-acr-secret
 	@echo "Installing kagent to AKS cluster using ACR images..."
+	@echo "Image tags: controller=$(CONTROLLER_IMAGE_TAG) ui=$(UI_IMAGE_TAG) app=$(APP_IMAGE_TAG)"
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace $(AKS_NAMESPACE) \
 		--create-namespace \
@@ -586,10 +788,13 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--history-max 2    \
 		--timeout 5m       \
 		--wait \
+		--force-conflicts \
 		--set ui.service.type=$(AKS_SERVICE_TYPE) \
 		--set registry=$(ACR_REGISTRY) \
 		--set imagePullPolicy=IfNotPresent \
-		--set tag=$(VERSION) \
+		--set controller.image.tag=$(CONTROLLER_IMAGE_TAG) \
+		--set ui.image.tag=$(UI_IMAGE_TAG) \
+		--set controller.agentImage.tag=$(APP_IMAGE_TAG) \
 		--set imagePullSecrets[0].name=acr-secret \
 		--set controller.agentImage.pullSecret=acr-secret \
 		--set controller.image.pullPolicy=IfNotPresent \
@@ -611,15 +816,20 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--set otel.tracing.exporter.otlp.endpoint=$(OTEL_ENDPOINT) \
 		--set otel.tracing.exporter.otlp.timeout=15 \
 		--set otel.tracing.exporter.otlp.insecure=true \
-		$(if $(DATABRICKS_TOKEN),--set databricks.enabled=true,) \
-		--set databricks.token=$(DATABRICKS_TOKEN) \
-		--set databricks.workspaceUrl=$(DATABRICKS_WORKSPACE_URL) \
-		--set databricks.catalog=$(DATABRICKS_CATALOG) \
-		--set databricks.schema=$(DATABRICKS_SCHEMA) \
-		--set databricks.warehouseId=$(DATABRICKS_WAREHOUSE_ID) \
+		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].name=$(DATABRICKS_DATASOURCE_NAME),) \
+		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].token=$(DATABRICKS_TOKEN),) \
+		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].workspaceUrl=$(DATABRICKS_WORKSPACE_URL),) \
+		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].catalog=$(DATABRICKS_CATALOG),) \
+		$(if $(DATABRICKS_SCHEMA),--set dataSources.databricks[0].schema=$(DATABRICKS_SCHEMA),) \
+		$(if $(DATABRICKS_WAREHOUSE_ID),--set dataSources.databricks[0].warehouseId=$(DATABRICKS_WAREHOUSE_ID),) \
 		$(KAGENT_HELM_EXTRA_ARGS)
 	@echo ""
 	@echo "Kagent successfully installed to AKS!"
+	@echo "Deployed versions:"
+	@echo "  Controller: $(ACR_REGISTRY)/$(ACR_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)"
+	@echo "  UI:         $(ACR_REGISTRY)/$(ACR_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)"
+	@echo "  App:        $(ACR_REGISTRY)/$(ACR_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)"
+	@echo ""
 	@echo "To access the UI, run: make aks-port-forward-ui"
 	@echo "To access the CLI, run: make aks-port-forward-cli"
 

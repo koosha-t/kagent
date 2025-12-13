@@ -193,30 +193,39 @@ providers:
     # apiKey: ""
 
 # ==============================================================================
-# DATABRICKS DATASOURCE CONFIGURATION
+# DATASOURCES CONFIGURATION
 # ==============================================================================
-# When enabled, creates a Kubernetes Secret and DataSource CR for Databricks.
-# The DataSource will auto-generate a ToolServer for agents to access semantic models.
+# DataSources provide first-class integration with data platforms.
+# Each DataSource creates a Kubernetes Secret and DataSource CR.
+# The controller auto-generates a RemoteMCPServer for agents to access data tools.
+#
+# DataSources can also be created via kubectl apply using manifests.
+# See contrib/examples/datasource-databricks.yaml for an example.
 
-databricks:
-  # Enable Databricks DataSource creation (set to true when token is provided)
-  enabled: false
-  # Name of the Kubernetes Secret to create
-  secretName: kagent-databricks
-  # Key within the secret containing the token
-  secretKey: DATABRICKS_TOKEN
-  # Databricks personal access token (will be base64 encoded in the Secret)
-  token: ""
-  # Databricks workspace URL (e.g., https://mycompany.cloud.databricks.com)
-  workspaceUrl: ""
-  # Unity Catalog name
-  catalog: ""
-  # Optional: Schema within the catalog (if empty, all schemas are searched)
-  schema: ""
-  # Optional: SQL Warehouse ID for executing queries (if empty, serverless SQL is used)
-  warehouseId: ""
-  # Name of the DataSource CR to create
-  dataSourceName: default-databricks
+dataSources:
+  # Databricks Unity Catalog DataSources
+  # Each entry creates a separate DataSource scoped to a catalog/schema
+  databricks: []
+  # Example:
+  # - name: sales-data                                        # Required: unique name for this DataSource
+  #   workspaceUrl: "https://mycompany.cloud.databricks.com"  # Required: Databricks workspace URL
+  #   token: ""                                               # Required: Personal Access Token (stored in Secret)
+  #   catalog: "sales"                                        # Required: Unity Catalog name
+  #   schema: "transactions"                                  # Optional: limit to specific schema
+  #   warehouseId: ""                                         # Optional: SQL Warehouse ID (uses serverless if empty)
+  #   secretName: ""                                          # Optional: override auto-generated secret name
+  #
+  # Multiple DataSources example:
+  # - name: sales-data
+  #   workspaceUrl: "https://mycompany.cloud.databricks.com"
+  #   token: "dapi..."
+  #   catalog: "sales"
+  #   schema: "transactions"
+  # - name: inventory-data
+  #   workspaceUrl: "https://mycompany.cloud.databricks.com"
+  #   token: "dapi..."
+  #   catalog: "operations"
+  #   schema: "inventory"
 
 # ==============================================================================
 # KMCP

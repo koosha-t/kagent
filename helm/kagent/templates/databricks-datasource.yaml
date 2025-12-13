@@ -1,23 +1,25 @@
-{{- if and .Values.databricks.enabled .Values.databricks.token .Values.databricks.workspaceUrl .Values.databricks.catalog }}
+{{- range .Values.dataSources.databricks }}
+{{- if and .name .token .workspaceUrl .catalog }}
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: DataSource
 metadata:
-  name: {{ .Values.databricks.dataSourceName | quote }}
-  namespace: {{ include "kagent.namespace" . }}
+  name: {{ .name | quote }}
+  namespace: {{ include "kagent.namespace" $ }}
   labels:
-    {{- include "kagent.labels" . | nindent 4 }}
+    {{- include "kagent.labels" $ | nindent 4 }}
 spec:
   provider: Databricks
   databricks:
-    workspaceUrl: {{ .Values.databricks.workspaceUrl | quote }}
-    credentialsSecretRef: {{ .Values.databricks.secretName | quote }}
-    credentialsSecretKey: {{ .Values.databricks.secretKey | quote }}
-    catalog: {{ .Values.databricks.catalog | quote }}
-    {{- if .Values.databricks.schema }}
-    schema: {{ .Values.databricks.schema | quote }}
+    workspaceUrl: {{ .workspaceUrl | quote }}
+    credentialsSecretRef: {{ .secretName | default (printf "%s-credentials" .name) | quote }}
+    credentialsSecretKey: "token"
+    catalog: {{ .catalog | quote }}
+    {{- if .schema }}
+    schema: {{ .schema | quote }}
     {{- end }}
-    {{- if .Values.databricks.warehouseId }}
-    warehouseId: {{ .Values.databricks.warehouseId | quote }}
+    {{- if .warehouseId }}
+    warehouseId: {{ .warehouseId | quote }}
     {{- end }}
+{{- end }}
 {{- end }}

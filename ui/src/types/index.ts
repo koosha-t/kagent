@@ -393,3 +393,51 @@ export interface DiscoveredTool {
   name: string;
   description: string;
 }
+
+// =============================================================================
+// DataSource Types
+// =============================================================================
+
+/**
+ * DatabricksConfig contains Databricks-specific connection settings.
+ */
+export interface DatabricksConfig {
+  workspaceUrl: string;
+  credentialsSecretRef: string;
+  credentialsSecretKey: string;
+  catalog: string;
+  schema?: string;
+  warehouseId?: string;
+}
+
+/**
+ * SemanticModelRef references a semantic model selected by the user.
+ */
+export interface SemanticModelRef {
+  name: string;
+  description?: string;
+}
+
+/**
+ * DiscoveredModel represents a semantic model found in Unity Catalog.
+ */
+export interface DiscoveredModel {
+  name: string;
+  catalog: string;
+  schema: string;
+  description?: string;
+}
+
+/**
+ * DataSourceResponse represents the API response for a DataSource.
+ */
+export interface DataSourceResponse {
+  ref: string;
+  provider: string;
+  databricks?: DatabricksConfig;
+  semanticModels?: SemanticModelRef[];
+  availableModels?: DiscoveredModel[];
+  generatedMCPServer?: string;
+  connected: boolean;
+  ready: boolean;
+}

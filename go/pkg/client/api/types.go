@@ -193,3 +193,31 @@ type SessionRunsResponse struct {
 type SessionRunsData struct {
 	Runs []any `json:"runs"`
 }
+
+// DataSourceResponse represents a data source response.
+// This corresponds to the DataSource CRD defined in go/api/v1alpha2/datasource_types.go
+type DataSourceResponse struct {
+	// Ref is the namespace/name format identifier (e.g., "default/sales-databricks")
+	Ref string `json:"ref"`
+
+	// Provider is the data platform type (currently only "Databricks")
+	Provider string `json:"provider"`
+
+	// Databricks contains the Databricks-specific connection configuration
+	Databricks *v1alpha2.DatabricksConfig `json:"databricks,omitempty"`
+
+	// SemanticModels are the models explicitly selected by the user to expose
+	SemanticModels []v1alpha2.SemanticModelRef `json:"semanticModels,omitempty"`
+
+	// AvailableModels are all models discovered from Unity Catalog
+	AvailableModels []v1alpha2.DiscoveredModel `json:"availableModels,omitempty"`
+
+	// GeneratedMCPServer is the name of the auto-generated RemoteMCPServer
+	GeneratedMCPServer string `json:"generatedMCPServer,omitempty"`
+
+	// Connected indicates if the data source connection is established
+	Connected bool `json:"connected"`
+
+	// Ready indicates if the DataSource is fully reconciled (MCP server created)
+	Ready bool `json:"ready"`
+}
