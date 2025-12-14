@@ -1086,6 +1086,12 @@ func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2
 }
 
 func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, remoteMcpServer *v1alpha2.RemoteMCPServerSpec, toolNames []string) error {
+	// Ensure toolNames is never nil - Python ADK expects an empty list, not null
+	// This can happen when Kubernetes omits empty arrays from stored resources
+	if toolNames == nil {
+		toolNames = []string{}
+	}
+
 	switch remoteMcpServer.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentNamespace)
