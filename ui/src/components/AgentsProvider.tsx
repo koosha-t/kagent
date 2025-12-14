@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
-import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar } from "@/types";
+import type { Agent, Tool, AgentResponse, BaseResponse, ModelConfig, ToolsResponse, AgentType, EnvVar, DataSourceResponse } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { isResourceNameValid } from "@/lib/utils";
 
@@ -28,6 +28,7 @@ export interface AgentFormData {
   systemPrompt?: string;
   modelName?: string;
   tools: Tool[];
+  dataSources?: DataSourceResponse[];
   stream?: boolean;
   // Skills
   skillRefs?: string[];

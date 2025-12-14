@@ -1,12 +1,31 @@
 "use server";
 
-import { AgentSpec, BaseResponse } from "@/types";
+import { AgentSpec, BaseResponse, DataSourceResponse } from "@/types";
 import { Agent, AgentResponse, Tool } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+
+/**
+ * Converts DataSources to Tool references that point to the auto-generated RemoteMCPServer
+ * @param dataSources Array of selected DataSources
+ * @returns Array of Tool references for the DataSources
+ */
+function convertDataSourcesToTools(dataSources: DataSourceResponse[]): Tool[] {
+  return dataSources
+    .filter(ds => ds.generatedMCPServer) // Only include DataSources with a generated MCP server
+    .map(ds => ({
+      type: "McpServer" as const,
+      mcpServer: {
+        name: ds.generatedMCPServer!,
+        kind: "RemoteMCPServer",
+        apiGroup: "kagent.dev",
+        toolNames: [], // Empty means use all tools from this server
+      },
+    }));
+}
 
 /**
  * Converts AgentFormData to Agent format
@@ -81,11 +100,20 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
   };
 
   if (type === "Declarative") {
+    // Convert regular tools
+    const regularTools = convertTools(agentFormData.tools || []);
+
+    // Convert DataSources to tool references
+    const dataSourceTools = convertDataSourcesToTools(agentFormData.dataSources || []);
+
+    // Merge all tools
+    const allTools = [...regularTools, ...dataSourceTools];
+
     base.spec!.declarative = {
       systemMessage: agentFormData.systemPrompt || "",
       modelConfig: modelConfigName || "",
       stream: agentFormData.stream ?? true,
-      tools: convertTools(agentFormData.tools || []),
+      tools: allTools,
     };
 
     if (agentFormData.skillRefs && agentFormData.skillRefs.length > 0) {
