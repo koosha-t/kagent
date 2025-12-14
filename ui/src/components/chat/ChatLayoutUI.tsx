@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { getSessionsForAgent } from "@/app/actions/sessions";
-import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
+import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse, DataSourceResponse } from "@/types";
 import { toast } from "sonner";
 
 interface ChatLayoutUIProps {
@@ -13,6 +13,7 @@ interface ChatLayoutUIProps {
   currentAgent: AgentResponse;
   allAgents: AgentResponse[];
   allTools: RemoteMCPServerResponse[];
+  dataSources?: DataSourceResponse[];
   children: React.ReactNode;
 }
 
@@ -22,6 +23,7 @@ export default function ChatLayoutUI({
   currentAgent,
   allAgents,
   allTools,
+  dataSources,
   children
 }: ChatLayoutUIProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -108,6 +110,7 @@ export default function ChatLayoutUI({
         selectedAgentName={agentName}
         currentAgent={currentAgent}
         allTools={convertedTools}
+        dataSources={dataSources}
       />
     </>
   );

@@ -3,14 +3,16 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { ErrorState } from "@/components/ErrorState";
 import { getAgent, getAgents } from "@/app/actions/agents";
 import { getServers } from "@/app/actions/servers";
+import { getDataSources } from "@/app/actions/datasources";
 import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
 
 async function getData(agentName: string, namespace: string) {
   try {
-    const [agentResponse, agentsResponse, serversResponse] = await Promise.all([
+    const [agentResponse, agentsResponse, serversResponse, dataSourcesResponse] = await Promise.all([
       getAgent(agentName, namespace),
       getAgents(),
-      getServers()
+      getServers(),
+      getDataSources()
     ]);
 
     if (agentResponse.error || !agentResponse.data) {
@@ -26,11 +28,13 @@ async function getData(agentName: string, namespace: string) {
     const currentAgent = agentResponse.data;
     const allAgents = agentsResponse.data || [];
     const allTools = serversResponse.data || [];
+    const dataSources = dataSourcesResponse.data || [];
 
     return {
       currentAgent,
       allAgents,
       allTools,
+      dataSources,
       error: null
     };
   } catch (error) {
@@ -43,7 +47,7 @@ async function getData(agentName: string, namespace: string) {
 export default async function ChatLayout({ children, params }: { children: React.ReactNode, params: { name: string, namespace: string } }) {
   const resolvedParams = await params;
   const { name, namespace } = resolvedParams;
-  const { currentAgent, allAgents, allTools, error } = await getData(name, namespace);
+  const { currentAgent, allAgents, allTools, dataSources, error } = await getData(name, namespace);
 
   if (error || !currentAgent) {
     return (
@@ -64,6 +68,7 @@ export default async function ChatLayout({ children, params }: { children: React
         currentAgent={currentAgent}
         allAgents={allAgents}
         allTools={allTools}
+        dataSources={dataSources}
       >
         {children}
       </ChatLayoutUI>
