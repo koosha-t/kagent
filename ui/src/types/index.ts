@@ -441,3 +441,43 @@ export interface DataSourceResponse {
   connected: boolean;
   ready: boolean;
 }
+
+/**
+ * DatabricksCatalog represents a Databricks Unity Catalog.
+ */
+export interface DatabricksCatalog {
+  name: string;
+  comment?: string;
+}
+
+/**
+ * DatabricksSchema represents a schema within a Databricks catalog.
+ */
+export interface DatabricksSchema {
+  name: string;
+  catalog: string;
+  comment?: string;
+}
+
+/**
+ * DatabricksTable represents a table within a Databricks schema.
+ */
+export interface DatabricksTable {
+  name: string;
+  catalog: string;
+  schema: string;
+  tableType: string;
+  comment?: string;
+}
+
+/**
+ * CreateDataSourceRequest represents the request to create a new DataSource.
+ */
+export interface CreateDataSourceRequest {
+  name: string;
+  namespace: string;
+  catalog: string;
+  schema: string;
+  tables: string[];
+  warehouseId?: string;
+}
