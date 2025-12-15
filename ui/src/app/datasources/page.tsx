@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EditDataSourceDialog } from "@/components/datasources/EditDataSourceDialog";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -127,7 +128,7 @@ export default function DataSourcesPage() {
                       )}
                       <Database className="h-5 w-5 text-blue-500" />
                       <div>
-                        <div className="font-medium">{ds.ref}</div>
+                        <div className="font-medium">{k8sRefUtils.getNameFromRef(ds.ref)}</div>
                         <div className="text-xs text-muted-foreground">
                           {ds.databricks?.workspaceUrl}
                         </div>

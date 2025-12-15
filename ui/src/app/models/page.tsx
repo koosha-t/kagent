@@ -118,7 +118,7 @@ export default function ModelsPage() {
                                         ) : (
                                             <ChevronRight className="h-4 w-4" />
                                         )}
-                                        <span className="font-medium">{model.ref}</span>
+                                        <span className="font-medium">{k8sRefUtils.getNameFromRef(model.ref)}</span>
                                     </div>
                                     <div className="flex space-x-2">
                                         <Button

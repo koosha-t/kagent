@@ -286,7 +286,7 @@ export function ModelConfigStep({
                                             <SelectContent>
                                                 {existingModels?.map(model => (
                                                     <SelectItem key={model.ref} value={model.ref}>
-                                                        {model.ref} ({model.providerName}: {model.model})
+                                                        {k8sRefUtils.getNameFromRef(model.ref)} ({model.providerName}: {model.model})
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>

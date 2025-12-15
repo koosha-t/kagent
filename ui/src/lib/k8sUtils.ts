@@ -12,6 +12,16 @@ export const k8sRefUtils = {
     return `${namespace}${this.SEPARATOR}${name}`;
   },
 
+  /**
+   * Extracts just the name part from a "namespace/name" ref string.
+   * Returns the original string if no separator is found.
+   */
+  getNameFromRef(ref: string): string {
+    if (!ref) return '';
+    const separatorIndex = ref.indexOf(this.SEPARATOR);
+    return separatorIndex === -1 ? ref : ref.substring(separatorIndex + 1);
+  },
+
   fromRef(ref: string): { namespace: string; name: string } {
     if (!ref || typeof ref !== 'string') {
       throw new Error('Reference must be a non-empty string');
