@@ -1,12 +1,11 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Database, ChevronRight, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import {
   getDatabricksCatalogs,
@@ -157,7 +156,7 @@ export default function NewDataSourcePage() {
   }, [selectedCatalog, selectedSchema, name]);
 
   const handleTableToggle = useCallback((tableName: string, checked: boolean) => {
-    setSelectedTables((prev) => {
+    setSelectedTables((prev: Set<string>) => {
       const next = new Set(prev);
       if (checked) {
         next.add(tableName);
@@ -172,7 +171,7 @@ export default function NewDataSourcePage() {
     if (selectedTables.size === tables.length) {
       setSelectedTables(new Set());
     } else {
-      setSelectedTables(new Set(tables.map((t) => t.name)));
+      setSelectedTables(new Set(tables.map((t: DatabricksTable) => t.name)));
     }
   }, [tables, selectedTables.size]);
 
@@ -243,8 +242,7 @@ export default function NewDataSourcePage() {
   if (loadError && catalogs.length === 0) {
     return (
       <ErrorState
-        message={loadError}
-        description="Make sure at least one DataSource exists with valid Databricks credentials."
+        message={`${loadError}. Make sure at least one DataSource exists with valid Databricks credentials.`}
       />
     );
   }
@@ -288,7 +286,7 @@ export default function NewDataSourcePage() {
                     <SelectValue placeholder="Select a catalog..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {catalogs.map((catalog) => (
+                    {catalogs.map((catalog: DatabricksCatalog) => (
                       <SelectItem key={catalog.name} value={catalog.name}>
                         <div className="flex flex-col">
                           <span>{catalog.name}</span>
@@ -338,7 +336,7 @@ export default function NewDataSourcePage() {
                     <SelectValue placeholder="Select a schema..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {schemas.map((schema) => (
+                    {schemas.map((schema: DatabricksSchema) => (
                       <SelectItem key={schema.name} value={schema.name}>
                         <div className="flex flex-col">
                           <span>{schema.name}</span>
@@ -398,15 +396,15 @@ export default function NewDataSourcePage() {
                     </span>
                   </div>
                   <div className="max-h-64 overflow-y-auto space-y-2">
-                    {tables.map((table) => (
+                    {tables.map((table: DatabricksTable) => (
                       <label
                         key={table.name}
                         className="flex items-center gap-3 p-2 rounded-md hover:bg-muted cursor-pointer"
                       >
                         <Checkbox
                           checked={selectedTables.has(table.name)}
-                          onCheckedChange={(checked) =>
-                            handleTableToggle(table.name, checked as boolean)
+                          onCheckedChange={(checked: boolean) =>
+                            handleTableToggle(table.name, checked)
                           }
                         />
                         <div className="flex-1 min-w-0">
@@ -453,7 +451,7 @@ export default function NewDataSourcePage() {
                   <Input
                     id="name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
                     placeholder="my-datasource"
                     className={errors.name ? "border-destructive" : ""}
                     disabled={!selectedSchema}
@@ -467,7 +465,7 @@ export default function NewDataSourcePage() {
                   <Input
                     id="namespace"
                     value={namespace}
-                    onChange={(e) => setNamespace(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setNamespace(e.target.value)}
                     placeholder="kagent"
                     className={errors.namespace ? "border-destructive" : ""}
                     disabled={!selectedSchema}
@@ -482,7 +480,7 @@ export default function NewDataSourcePage() {
                 <Input
                   id="warehouseId"
                   value={warehouseId}
-                  onChange={(e) => setWarehouseId(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setWarehouseId(e.target.value)}
                   placeholder="Leave empty to use default"
                   disabled={!selectedSchema}
                 />
