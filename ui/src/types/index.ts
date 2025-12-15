@@ -481,3 +481,11 @@ export interface CreateDataSourceRequest {
   tables: string[];
   warehouseId?: string;
 }
+
+/**
+ * UpdateDataSourceRequest represents the request to update a DataSource.
+ * Only table selection (semantic models) can be updated.
+ */
+export interface UpdateDataSourceRequest {
+  tables: string[];
+}

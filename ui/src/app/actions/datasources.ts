@@ -6,6 +6,7 @@ import {
   DatabricksSchema,
   DatabricksTable,
   CreateDataSourceRequest,
+  UpdateDataSourceRequest,
   BaseResponse
 } from "@/types";
 import { fetchApi, createErrorResponse } from "./utils";
@@ -119,5 +120,76 @@ export async function getDatabricksTables(catalog: string, schema: string): Prom
     };
   } catch (error) {
     return createErrorResponse<DatabricksTable[]>(error, "Error getting Databricks tables");
+  }
+}
+
+/**
+ * Fetches a single DataSource by ref (namespace/name).
+ * @param ref The data source ref in "namespace/name" format
+ * @returns Promise with data source or error
+ */
+export async function getDataSource(ref: string): Promise<BaseResponse<DataSourceResponse>> {
+  try {
+    const response = await fetchApi<BaseResponse<DataSourceResponse>>(`/datasources/${ref}`);
+
+    if (!response) {
+      throw new Error("Failed to get data source");
+    }
+
+    return {
+      message: "Data source fetched successfully",
+      data: response.data,
+    };
+  } catch (error) {
+    return createErrorResponse<DataSourceResponse>(error, "Error getting data source");
+  }
+}
+
+/**
+ * Updates a DataSource (only table selection can be changed).
+ * @param ref The data source ref in "namespace/name" format
+ * @param request The update request with new table selection
+ * @returns Promise with updated data source or error
+ */
+export async function updateDataSource(ref: string, request: UpdateDataSourceRequest): Promise<BaseResponse<DataSourceResponse>> {
+  try {
+    const response = await fetchApi<BaseResponse<DataSourceResponse>>(`/datasources/${ref}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+
+    if (!response) {
+      throw new Error("Failed to update data source");
+    }
+
+    return {
+      message: response.message || "Data source updated successfully",
+      data: response.data,
+    };
+  } catch (error) {
+    return createErrorResponse<DataSourceResponse>(error, "Error updating data source");
+  }
+}
+
+/**
+ * Deletes a DataSource.
+ * @param ref The data source ref in "namespace/name" format
+ * @returns Promise with success message or error
+ */
+export async function deleteDataSource(ref: string): Promise<BaseResponse<void>> {
+  try {
+    const response = await fetchApi<BaseResponse<void>>(`/datasources/${ref}`, {
+      method: 'DELETE',
+    });
+
+    if (!response) {
+      throw new Error("Failed to delete data source");
+    }
+
+    return {
+      message: response.message || "Data source deleted successfully",
+    };
+  } catch (error) {
+    return createErrorResponse<void>(error, "Error deleting data source");
   }
 }

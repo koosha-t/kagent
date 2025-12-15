@@ -228,6 +228,9 @@ func (s *HTTPServer) setupRoutes() {
 	// DataSources
 	s.router.HandleFunc(APIPathDataSources, adaptHandler(s.handlers.DataSources.HandleListDataSources)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathDataSources, adaptHandler(s.handlers.DataSources.HandleCreateDataSource)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathDataSources+"/{namespace}/{name}", adaptHandler(s.handlers.DataSources.HandleGetDataSource)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathDataSources+"/{namespace}/{name}", adaptHandler(s.handlers.DataSources.HandleUpdateDataSource)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathDataSources+"/{namespace}/{name}", adaptHandler(s.handlers.DataSources.HandleDeleteDataSource)).Methods(http.MethodDelete)
 
 	// Databricks Discovery
 	s.router.HandleFunc(APIPathDatabricksCatalogs, adaptHandler(s.handlers.DatabricksDiscovery.HandleListCatalogs)).Methods(http.MethodGet)

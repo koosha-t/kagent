@@ -269,3 +269,10 @@ type CreateDataSourceRequest struct {
 	// WarehouseID is the optional SQL Warehouse ID
 	WarehouseID string `json:"warehouseId,omitempty"`
 }
+
+// UpdateDataSourceRequest represents a request to update a DataSource.
+// Only the table selection (semantic models) can be updated.
+type UpdateDataSourceRequest struct {
+	// Tables is the list of table names to expose as semantic models
+	Tables []string `json:"tables"`
+}

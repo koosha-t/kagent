@@ -9,7 +9,10 @@ import (
 	common "github.com/kagent-dev/kagent/go/internal/utils"
 	"github.com/kagent-dev/kagent/go/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/client/api"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -201,4 +204,188 @@ func (h *DataSourcesHandler) getExistingDatabricksConfig(ctx context.Context) (*
 	}
 
 	return nil, errors.NewNotFoundError("No existing Databricks DataSource found", nil)
+}
+
+// HandleGetDataSource handles GET /api/datasources/{namespace}/{name} requests.
+// It returns a single DataSource CRD in DataSourceResponse format.
+func (h *DataSourcesHandler) HandleGetDataSource(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("datasources-handler").WithValues("operation", "get")
+	log.Info("Received request to get DataSource")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	name, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	log = log.WithValues("namespace", namespace, "name", name)
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "DataSource", Name: types.NamespacedName{Namespace: namespace, Name: name}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	// Get DataSource CRD from Kubernetes
+	ds := &v1alpha2.DataSource{}
+	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, ds); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("DataSource not found")
+			w.RespondWithError(errors.NewNotFoundError("DataSource not found", nil))
+			return
+		}
+		log.Error(err, "Failed to get DataSource from Kubernetes")
+		w.RespondWithError(errors.NewInternalServerError("Failed to get DataSource", err))
+		return
+	}
+
+	// Convert CRD to API response format
+	response := api.DataSourceResponse{
+		Ref:                common.GetObjectRef(ds),
+		Provider:           string(ds.Spec.Provider),
+		Databricks:         ds.Spec.Databricks,
+		SemanticModels:     ds.Spec.SemanticModels,
+		AvailableModels:    ds.Status.AvailableModels,
+		GeneratedMCPServer: ds.Status.GeneratedMCPServer,
+		Connected:          isConditionTrue(ds.Status.Conditions, v1alpha2.DataSourceConditionTypeConnected),
+		Ready:              isConditionTrue(ds.Status.Conditions, v1alpha2.DataSourceConditionTypeReady),
+	}
+
+	log.Info("Successfully retrieved DataSource")
+	data := api.NewResponse(response, "Successfully retrieved DataSource", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleUpdateDataSource handles PUT /api/datasources/{namespace}/{name} requests.
+// It updates only the semanticModels (table selection) of a DataSource.
+func (h *DataSourcesHandler) HandleUpdateDataSource(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("datasources-handler").WithValues("operation", "update")
+	log.Info("Received request to update DataSource")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	name, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	log = log.WithValues("namespace", namespace, "name", name)
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "DataSource", Name: types.NamespacedName{Namespace: namespace, Name: name}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	// Parse request body
+	var req api.UpdateDataSourceRequest
+	if err := DecodeJSONBody(r, &req); err != nil {
+		log.Error(err, "Failed to parse request body")
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	// Get existing DataSource from Kubernetes
+	ds := &v1alpha2.DataSource{}
+	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, ds); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("DataSource not found")
+			w.RespondWithError(errors.NewNotFoundError("DataSource not found", nil))
+			return
+		}
+		log.Error(err, "Failed to get DataSource from Kubernetes")
+		w.RespondWithError(errors.NewInternalServerError("Failed to get DataSource", err))
+		return
+	}
+
+	// Update semantic models from the request
+	var semanticModels []v1alpha2.SemanticModelRef
+	for _, table := range req.Tables {
+		semanticModels = append(semanticModels, v1alpha2.SemanticModelRef{
+			Name: table,
+		})
+	}
+	ds.Spec.SemanticModels = semanticModels
+
+	// Update the DataSource in Kubernetes
+	if err := h.KubeClient.Update(r.Context(), ds); err != nil {
+		log.Error(err, "Failed to update DataSource")
+		w.RespondWithError(errors.NewInternalServerError("Failed to update DataSource", err))
+		return
+	}
+
+	// Return the updated DataSource
+	response := api.DataSourceResponse{
+		Ref:                common.GetObjectRef(ds),
+		Provider:           string(ds.Spec.Provider),
+		Databricks:         ds.Spec.Databricks,
+		SemanticModels:     ds.Spec.SemanticModels,
+		AvailableModels:    ds.Status.AvailableModels,
+		GeneratedMCPServer: ds.Status.GeneratedMCPServer,
+		Connected:          isConditionTrue(ds.Status.Conditions, v1alpha2.DataSourceConditionTypeConnected),
+		Ready:              isConditionTrue(ds.Status.Conditions, v1alpha2.DataSourceConditionTypeReady),
+	}
+
+	log.Info("Successfully updated DataSource")
+	data := api.NewResponse(response, "Successfully updated DataSource", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleDeleteDataSource handles DELETE /api/datasources/{namespace}/{name} requests.
+// It deletes a DataSource CRD from Kubernetes.
+func (h *DataSourcesHandler) HandleDeleteDataSource(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("datasources-handler").WithValues("operation", "delete")
+	log.Info("Received request to delete DataSource")
+
+	namespace, err := GetPathParam(r, "namespace")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
+		return
+	}
+
+	name, err := GetPathParam(r, "name")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		return
+	}
+
+	log = log.WithValues("namespace", namespace, "name", name)
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "DataSource", Name: types.NamespacedName{Namespace: namespace, Name: name}.String()}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	// Get DataSource to verify it exists
+	ds := &v1alpha2.DataSource{}
+	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, ds); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("DataSource not found")
+			w.RespondWithError(errors.NewNotFoundError("DataSource not found", nil))
+			return
+		}
+		log.Error(err, "Failed to get DataSource from Kubernetes")
+		w.RespondWithError(errors.NewInternalServerError("Failed to get DataSource", err))
+		return
+	}
+
+	// Delete the DataSource from Kubernetes
+	if err := h.KubeClient.Delete(r.Context(), ds); err != nil {
+		log.Error(err, "Failed to delete DataSource")
+		w.RespondWithError(errors.NewInternalServerError("Failed to delete DataSource", err))
+		return
+	}
+
+	log.Info("Successfully deleted DataSource")
+	data := api.NewResponse(struct{}{}, "Successfully deleted DataSource", false)
+	RespondWithJSON(w, http.StatusOK, data)
 }
