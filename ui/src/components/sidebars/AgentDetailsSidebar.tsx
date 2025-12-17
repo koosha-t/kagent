@@ -305,7 +305,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
             <SidebarGroup>
               <div className="flex items-center justify-between px-2 mb-1">
                 <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
+                  {selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
                 </SidebarGroupLabel>
                 <Button
                   variant="ghost"
@@ -321,13 +321,6 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
-            {isDeclarativeAgent &&(
-              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-                <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
-                {selectedTeam && renderAgentTools(selectedTeam.tools)}
-              </SidebarGroup>
-            )}
-
             {isDeclarativeAgent && linkedDataSources.length > 0 && (
               <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                 <div className="flex items-center justify-between px-2 mb-2">
@@ -345,7 +338,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
 
                     return (
                       <SidebarMenuItem key={ds.ref}>
-                        <SidebarMenuButton className="w-full">
+                        <SidebarMenuButton className="w-full h-auto">
                           <div className="flex items-center gap-2 w-full">
                             <Database className="h-4 w-4 text-violet-500 flex-shrink-0" />
                             <div className="flex flex-col min-w-0">
@@ -360,6 +353,13 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools,
                     );
                   })}
                 </SidebarMenu>
+              </SidebarGroup>
+            )}
+
+            {isDeclarativeAgent && (
+              <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                <SidebarGroupLabel>Tools & Agents</SidebarGroupLabel>
+                {selectedTeam && renderAgentTools(selectedTeam.tools)}
               </SidebarGroup>
             )}
 

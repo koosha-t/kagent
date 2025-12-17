@@ -38,7 +38,10 @@ const (
 	APIPathFeedback        = "/api/feedback"
 	APIPathLangGraph       = "/api/langgraph"
 	APIPathCrewAI          = "/api/crewai"
-	APIPathDataSources     = "/api/datasources"
+	APIPathDataSources          = "/api/datasources"
+	APIPathDatabricksCatalogs   = "/api/databricks/catalogs"
+	APIPathDatabricksSchemas    = "/api/databricks/catalogs/{catalog}/schemas"
+	APIPathDatabricksTables     = "/api/databricks/schemas/{catalog}/{schema}/tables"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -222,8 +225,17 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
 
-	// DataSources (read-only)
+	// DataSources
 	s.router.HandleFunc(APIPathDataSources, adaptHandler(s.handlers.DataSources.HandleListDataSources)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathDataSources, adaptHandler(s.handlers.DataSources.HandleCreateDataSource)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathDataSources+"/{namespace}/{name}", adaptHandler(s.handlers.DataSources.HandleGetDataSource)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathDataSources+"/{namespace}/{name}", adaptHandler(s.handlers.DataSources.HandleUpdateDataSource)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathDataSources+"/{namespace}/{name}", adaptHandler(s.handlers.DataSources.HandleDeleteDataSource)).Methods(http.MethodDelete)
+
+	// Databricks Discovery
+	s.router.HandleFunc(APIPathDatabricksCatalogs, adaptHandler(s.handlers.DatabricksDiscovery.HandleListCatalogs)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathDatabricksSchemas, adaptHandler(s.handlers.DatabricksDiscovery.HandleListSchemas)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathDatabricksTables, adaptHandler(s.handlers.DatabricksDiscovery.HandleListTables)).Methods(http.MethodGet)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

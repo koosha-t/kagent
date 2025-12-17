@@ -221,3 +221,58 @@ type DataSourceResponse struct {
 	// Ready indicates if the DataSource is fully reconciled (MCP server created)
 	Ready bool `json:"ready"`
 }
+
+// DatabricksCatalog represents a Databricks Unity Catalog.
+type DatabricksCatalog struct {
+	// Name is the catalog name
+	Name string `json:"name"`
+	// Comment is the catalog description
+	Comment string `json:"comment,omitempty"`
+}
+
+// DatabricksSchema represents a schema within a Databricks catalog.
+type DatabricksSchema struct {
+	// Name is the schema name
+	Name string `json:"name"`
+	// Catalog is the parent catalog name
+	Catalog string `json:"catalog"`
+	// Comment is the schema description
+	Comment string `json:"comment,omitempty"`
+}
+
+// DatabricksTable represents a table within a Databricks schema.
+type DatabricksTable struct {
+	// Name is the table name
+	Name string `json:"name"`
+	// Catalog is the parent catalog name
+	Catalog string `json:"catalog"`
+	// Schema is the parent schema name
+	Schema string `json:"schema"`
+	// TableType is the type of table (MANAGED, EXTERNAL, VIEW)
+	TableType string `json:"tableType"`
+	// Comment is the table description
+	Comment string `json:"comment,omitempty"`
+}
+
+// CreateDataSourceRequest represents a request to create a new DataSource.
+type CreateDataSourceRequest struct {
+	// Name is the DataSource name (RFC 1123 compliant)
+	Name string `json:"name"`
+	// Namespace is the Kubernetes namespace
+	Namespace string `json:"namespace"`
+	// Catalog is the Databricks Unity Catalog name
+	Catalog string `json:"catalog"`
+	// Schema is the Databricks schema name
+	Schema string `json:"schema"`
+	// Tables is the list of table names to expose as semantic models
+	Tables []string `json:"tables"`
+	// WarehouseID is the optional SQL Warehouse ID
+	WarehouseID string `json:"warehouseId,omitempty"`
+}
+
+// UpdateDataSourceRequest represents a request to update a DataSource.
+// Only the table selection (semantic models) can be updated.
+type UpdateDataSourceRequest struct {
+	// Tables is the list of table names to expose as semantic models
+	Tables []string `json:"tables"`
+}

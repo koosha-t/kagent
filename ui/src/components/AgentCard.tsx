@@ -58,7 +58,7 @@ export function AgentCard({ agentResponse: { agent, model, modelProvider, deploy
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative z-30">
         <CardTitle className="flex items-center gap-2 flex-1 min-w-0">
           <KagentLogo className="h-5 w-5 flex-shrink-0" />
-          <span className="truncate">{agentRef}</span>
+          <span className="truncate">{agent.metadata.name}</span>
         </CardTitle>
         <div className="flex items-center space-x-2 relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
           <Button

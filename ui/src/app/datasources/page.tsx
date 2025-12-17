@@ -1,10 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Database, ChevronDown, ChevronRight, CheckCircle2, XCircle, ExternalLink, Table } from "lucide-react";
+import { Database, ChevronDown, ChevronRight, CheckCircle2, XCircle, ExternalLink, Table, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DataSourceResponse } from "@/types";
-import { getDataSources } from "../actions/datasources";
+import { getDataSources, deleteDataSource } from "../actions/datasources";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EditDataSourceDialog } from "@/components/datasources/EditDataSourceDialog";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -12,6 +17,11 @@ export default function DataSourcesPage() {
   const [dataSources, setDataSources] = useState<DataSourceResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+
+  // Dialog states
+  const [editingDataSource, setEditingDataSource] = useState<DataSourceResponse | null>(null);
+  const [deletingDataSource, setDeletingDataSource] = useState<string | null>(null);
+  const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDataSources();
@@ -48,6 +58,26 @@ export default function DataSourcesPage() {
       }
       return newSet;
     });
+  };
+
+  const handleDeleteDataSource = async (ref: string) => {
+    try {
+      setIsLoading(true);
+      const response = await deleteDataSource(ref);
+
+      if (!response.error) {
+        toast.success("Data source deleted successfully");
+        fetchDataSources();
+      } else {
+        toast.error(response.error || "Failed to delete data source");
+      }
+    } catch (error) {
+      console.error("Error deleting data source:", error);
+      toast.error("Failed to delete data source");
+    } finally {
+      setIsLoading(false);
+      setDeletingDataSource(null);
+    }
   };
 
   const StatusIndicator = ({ ok, label }: { ok: boolean; label: string }) => (
@@ -98,7 +128,7 @@ export default function DataSourcesPage() {
                       )}
                       <Database className="h-5 w-5 text-blue-500" />
                       <div>
-                        <div className="font-medium">{ds.ref}</div>
+                        <div className="font-medium">{k8sRefUtils.getNameFromRef(ds.ref)}</div>
                         <div className="text-xs text-muted-foreground">
                           {ds.databricks?.workspaceUrl}
                         </div>
@@ -108,6 +138,40 @@ export default function DataSourcesPage() {
                       <Badge variant="outline">{ds.provider}</Badge>
                       <StatusIndicator ok={ds.connected} label="Connected" />
                       <StatusIndicator ok={ds.ready} label="Ready" />
+
+                      <DropdownMenu
+                        open={openDropdownMenu === ds.ref}
+                        onOpenChange={(isOpen) => setOpenDropdownMenu(isOpen ? ds.ref : null)}
+                      >
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              setEditingDataSource(ds);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Edit Tables
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              setOpenDropdownMenu(null);
+                              setDeletingDataSource(ds.ref);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </div>
@@ -210,6 +274,32 @@ export default function DataSourcesPage() {
           </code>
         </div>
       )}
+
+      {/* Edit data source dialog */}
+      <EditDataSourceDialog
+        open={editingDataSource !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingDataSource(null);
+          }
+        }}
+        dataSource={editingDataSource}
+        onSuccess={fetchDataSources}
+      />
+
+      {/* Confirm delete dialog */}
+      <ConfirmDialog
+        open={deletingDataSource !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeletingDataSource(null);
+          }
+        }}
+        title="Delete Data Source"
+        description="Are you sure you want to delete this data source? This will also delete the generated MCP server and cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => deletingDataSource !== null && handleDeleteDataSource(deletingDataSource)}
+      />
     </div>
   );
 }

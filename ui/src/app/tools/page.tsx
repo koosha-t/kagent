@@ -11,6 +11,7 @@ import { RemoteMCPServerResponse, DiscoveredTool } from "@/types";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getServers } from "../actions/servers";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import Link from "next/link";
 import CategoryFilter from "@/components/tools/CategoryFilter";
 
@@ -253,7 +254,7 @@ export default function ToolsPage() {
                                     </div>
                                     <div className="text-xs text-muted-foreground/80 mt-1.5 flex items-center gap-1.5 font-mono">
                                        <Server className="h-3 w-3" />
-                                       <span className="truncate">{highlightMatch(server.ref, searchTerm)}</span>
+                                       <span className="truncate">{highlightMatch(k8sRefUtils.getNameFromRef(server.ref), searchTerm)}</span>
                                     </div>
                                   </div>
                                 </div>

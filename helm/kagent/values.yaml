@@ -203,6 +203,12 @@ providers:
 # See contrib/examples/datasource-databricks.yaml for an example.
 
 dataSources:
+  # Shared Databricks credentials (optional)
+  # Creates a single secret that can be referenced by multiple DataSources
+  databricksShared:
+    secretName: ""  # e.g., "databricks-token" - name of the shared secret
+    token: ""       # Databricks Personal Access Token
+
   # Databricks Unity Catalog DataSources
   # Each entry creates a separate DataSource scoped to a catalog/schema
   databricks: []

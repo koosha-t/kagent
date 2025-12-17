@@ -44,7 +44,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                 <KagentLogo className="w-4 h-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">{selectedAgentRef}</span>
+                <span className="truncate font-semibold">{selectedAgent.agent.metadata.name}</span>
                 <span className="truncate text-xs">{selectedAgent.modelProvider} {selectedAgent.model && `(${selectedAgent.model})`}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
@@ -62,7 +62,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
                   }}
                   className="gap-2 p-2"
                 >
-                  {agentRef}
+                  {agent.metadata.name}
                   <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
                 </DropdownMenuItem>
               );

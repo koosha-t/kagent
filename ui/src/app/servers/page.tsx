@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { createServer, deleteServer, getServers, getToolServerTypes } from "../actions/servers";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -173,9 +174,9 @@ export default function ServersPage() {
                       {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                       <div className="flex items-center gap-2">
                         <div>
-                          <div className="font-medium">{server.ref}</div>
+                          <div className="font-medium">{k8sRefUtils.getNameFromRef(server.ref)}</div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
-                            <span className="font-mono">{server.ref}</span>
+                            <span className="font-mono">{server.groupKind}</span>
                           </div>
                         </div>
                       </div>

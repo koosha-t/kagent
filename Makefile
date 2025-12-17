@@ -63,6 +63,7 @@ AZUREOPENAI_API_VERSION ?= 2024-08-01-preview
 AZUREOPENAI_MODEL ?= gpt-4o
 
 # Databricks DataSource configuration
+DATABRICKS_SECRET_NAME ?= databricks-token
 DATABRICKS_DATASOURCE_NAME ?= default-databricks
 DATABRICKS_TOKEN ?=
 DATABRICKS_WORKSPACE_URL ?=
@@ -816,10 +817,12 @@ helm-install-aks: helm-version check-aks-api-key aks-check-context aks-create-ac
 		--set otel.tracing.exporter.otlp.endpoint=$(OTEL_ENDPOINT) \
 		--set otel.tracing.exporter.otlp.timeout=15 \
 		--set otel.tracing.exporter.otlp.insecure=true \
-		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].name=$(DATABRICKS_DATASOURCE_NAME),) \
-		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].token=$(DATABRICKS_TOKEN),) \
-		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].workspaceUrl=$(DATABRICKS_WORKSPACE_URL),) \
-		$(if $(DATABRICKS_TOKEN),--set dataSources.databricks[0].catalog=$(DATABRICKS_CATALOG),) \
+		$(if $(DATABRICKS_TOKEN),--set dataSources.databricksShared.secretName=$(DATABRICKS_SECRET_NAME),) \
+		$(if $(DATABRICKS_TOKEN),--set dataSources.databricksShared.token=$(DATABRICKS_TOKEN),) \
+		$(if $(DATABRICKS_DATASOURCE_NAME),--set dataSources.databricks[0].name=$(DATABRICKS_DATASOURCE_NAME),) \
+		$(if $(DATABRICKS_DATASOURCE_NAME),--set dataSources.databricks[0].secretName=$(DATABRICKS_SECRET_NAME),) \
+		$(if $(DATABRICKS_DATASOURCE_NAME),--set dataSources.databricks[0].workspaceUrl=$(DATABRICKS_WORKSPACE_URL),) \
+		$(if $(DATABRICKS_DATASOURCE_NAME),--set dataSources.databricks[0].catalog=$(DATABRICKS_CATALOG),) \
 		$(if $(DATABRICKS_SCHEMA),--set dataSources.databricks[0].schema=$(DATABRICKS_SCHEMA),) \
 		$(if $(DATABRICKS_WAREHOUSE_ID),--set dataSources.databricks[0].warehouseId=$(DATABRICKS_WAREHOUSE_ID),) \
 		$(KAGENT_HELM_EXTRA_ARGS)

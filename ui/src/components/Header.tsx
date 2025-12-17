@@ -82,6 +82,12 @@ export function Header() {
                     New MCP Server
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/datasources/new" className="gap-2 cursor-pointer w-full">
+                    <Database className="h-4 w-4" />
+                    New Data Source
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             
@@ -221,6 +227,12 @@ export function Header() {
                     <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New MCP Server
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/datasources/new" className="gap-2 cursor-pointer w-full">
+                      <Database className="h-4 w-4" />
+                      New Data Source
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
