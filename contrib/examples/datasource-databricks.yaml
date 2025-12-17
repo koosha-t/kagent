@@ -1,0 +1,67 @@
+# Example: DataSource for Databricks Unity Catalog
+#
+# This example shows how to create a DataSource that connects to a Databricks
+# workspace and exposes semantic models as MCP tools for agents.
+#
+# Prerequisites:
+# 1. A Databricks workspace with Unity Catalog enabled
+# 2. A Databricks personal access token (PAT) with access to Unity Catalog
+# 3. The kagent controller deployed in your cluster
+#
+# Usage:
+# 1. Create the secret with your Databricks token (update the token value):
+#    kubectl apply -f datasource-databricks.yaml
+#
+# 2. Check the DataSource status:
+#    kubectl get datasource sales-databricks -o yaml
+#
+# 3. The controller will create a ToolServer named "sales-databricks-mcp"
+#    that agents can reference to access data tools.
+
+---
+# Secret containing the Databricks personal access token
+apiVersion: v1
+kind: Secret
+metadata:
+  name: databricks-credentials
+  namespace: default
+type: Opaque
+stringData:
+  # Replace with your actual Databricks PAT
+  # You can generate one at: https://docs.databricks.com/en/dev-tools/auth/pat.html
+  token: "dapi1234567890abcdef..."
+
+---
+# DataSource resource for Databricks
+apiVersion: kagent.dev/v1alpha2
+kind: DataSource
+metadata:
+  name: sales-databricks
+  namespace: default
+spec:
+  # Provider type - currently only Databricks is supported
+  provider: Databricks
+
+  # Databricks-specific configuration
+  databricks:
+    # Your Databricks workspace URL
+    workspaceUrl: https://mycompany.cloud.databricks.com
+
+    # Reference to the secret containing credentials
+    credentialsSecretRef: databricks-credentials
+    credentialsSecretKey: token
+
+    # Unity Catalog name
+    catalog: main
+
+    # Optional: limit discovery to a specific schema
+    # If omitted, all schemas in the catalog are searched
+    schema: sales
+
+  # Optional: specific semantic models to expose
+  # If omitted, all discovered models will be exposed
+  semanticModels:
+    - name: revenue_metrics
+      description: "Revenue KPIs by region and time period"
+    - name: customer_360
+      description: "Unified customer view with demographics and purchase history"

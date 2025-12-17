@@ -1,0 +1,26 @@
+{{- range .Values.dataSources.databricks }}
+{{- if and .name (or .token .secretName) .workspaceUrl .catalog }}
+{{- /* Create DataSource if name + (token OR secretName) + workspaceUrl + catalog are provided */ -}}
+---
+apiVersion: kagent.dev/v1alpha2
+kind: DataSource
+metadata:
+  name: {{ .name | quote }}
+  namespace: {{ include "kagent.namespace" $ }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+spec:
+  provider: Databricks
+  databricks:
+    workspaceUrl: {{ .workspaceUrl | quote }}
+    credentialsSecretRef: {{ .secretName | default (printf "%s-credentials" .name) | quote }}
+    credentialsSecretKey: "token"
+    catalog: {{ .catalog | quote }}
+    {{- if .schema }}
+    schema: {{ .schema | quote }}
+    {{- end }}
+    {{- if .warehouseId }}
+    warehouseId: {{ .warehouseId | quote }}
+    {{- end }}
+{{- end }}
+{{- end }}

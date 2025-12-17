@@ -193,6 +193,47 @@ providers:
     # apiKey: ""
 
 # ==============================================================================
+# DATASOURCES CONFIGURATION
+# ==============================================================================
+# DataSources provide first-class integration with data platforms.
+# Each DataSource creates a Kubernetes Secret and DataSource CR.
+# The controller auto-generates a RemoteMCPServer for agents to access data tools.
+#
+# DataSources can also be created via kubectl apply using manifests.
+# See contrib/examples/datasource-databricks.yaml for an example.
+
+dataSources:
+  # Shared Databricks credentials (optional)
+  # Creates a single secret that can be referenced by multiple DataSources
+  databricksShared:
+    secretName: ""  # e.g., "databricks-token" - name of the shared secret
+    token: ""       # Databricks Personal Access Token
+
+  # Databricks Unity Catalog DataSources
+  # Each entry creates a separate DataSource scoped to a catalog/schema
+  databricks: []
+  # Example:
+  # - name: sales-data                                        # Required: unique name for this DataSource
+  #   workspaceUrl: "https://mycompany.cloud.databricks.com"  # Required: Databricks workspace URL
+  #   token: ""                                               # Required: Personal Access Token (stored in Secret)
+  #   catalog: "sales"                                        # Required: Unity Catalog name
+  #   schema: "transactions"                                  # Optional: limit to specific schema
+  #   warehouseId: ""                                         # Optional: SQL Warehouse ID (uses serverless if empty)
+  #   secretName: ""                                          # Optional: override auto-generated secret name
+  #
+  # Multiple DataSources example:
+  # - name: sales-data
+  #   workspaceUrl: "https://mycompany.cloud.databricks.com"
+  #   token: "dapi..."
+  #   catalog: "sales"
+  #   schema: "transactions"
+  # - name: inventory-data
+  #   workspaceUrl: "https://mycompany.cloud.databricks.com"
+  #   token: "dapi..."
+  #   catalog: "operations"
+  #   schema: "inventory"
+
+# ==============================================================================
 # KMCP
 # ==============================================================================
 

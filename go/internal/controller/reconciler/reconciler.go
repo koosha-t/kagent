@@ -16,10 +16,13 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/internal/controller/translator"
@@ -47,6 +50,7 @@ type KagentReconciler interface {
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPService(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error
+	ReconcileKagentDataSource(ctx context.Context, req ctrl.Request) error
 	GetOwnedResourceTypes() []client.Object
 }
 
@@ -333,6 +337,361 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 		}
 	}
 	return nil
+}
+
+// ReconcileKagentDataSource reconciles a DataSource resource.
+// It creates and manages an HTTP MCP server (Deployment + Service + RemoteMCPServer)
+// for each DataSource, enabling agents to access data fabric semantic models via MCP tools.
+func (a *kagentReconciler) ReconcileKagentDataSource(ctx context.Context, req ctrl.Request) error {
+	l := reconcileLog.WithValues("datasource", req.NamespacedName)
+
+	// Step 1: Get the DataSource resource
+	ds := &v1alpha2.DataSource{}
+	if err := a.kube.Get(ctx, req.NamespacedName, ds); err != nil {
+		if apierrors.IsNotFound(err) {
+			l.Info("DataSource was deleted")
+			return nil
+		}
+		return fmt.Errorf("failed to get datasource %s: %w", req.NamespacedName, err)
+	}
+
+	// Step 2: Validate credentials secret exists
+	var secretHash string
+	if ds.Spec.Databricks != nil {
+		secret := &corev1.Secret{}
+		secretName := types.NamespacedName{
+			Namespace: ds.Namespace,
+			Name:      ds.Spec.Databricks.CredentialsSecretRef,
+		}
+		if err := a.kube.Get(ctx, secretName, secret); err != nil {
+			return a.reconcileDataSourceStatus(ctx, ds, nil, "",
+				fmt.Errorf("credentials secret %q not found: %w", ds.Spec.Databricks.CredentialsSecretRef, err))
+		}
+
+		if _, ok := secret.Data[ds.Spec.Databricks.CredentialsSecretKey]; !ok {
+			return a.reconcileDataSourceStatus(ctx, ds, nil, "",
+				fmt.Errorf("key %q not found in secret %q", ds.Spec.Databricks.CredentialsSecretKey, ds.Spec.Databricks.CredentialsSecretRef))
+		}
+
+		// Compute secret hash for change detection
+		secretHash = computeStatusSecretHash([]secretRef{{
+			NamespacedName: secretName,
+			Secret:         secret,
+		}})
+	}
+
+	mcpServerName := fmt.Sprintf("%s-mcp", ds.Name)
+
+	// Step 3: Create/Update Deployment
+	deployment := a.generateDeploymentForDataSource(ds)
+	if err := controllerutil.SetControllerReference(ds, deployment, a.kube.Scheme()); err != nil {
+		return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash,
+			fmt.Errorf("failed to set owner reference on deployment: %w", err))
+	}
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing := &appsv1.Deployment{}
+		err := a.kube.Get(ctx, types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, existing)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return a.kube.Create(ctx, deployment)
+			}
+			return err
+		}
+		existing.Spec = deployment.Spec
+		existing.Labels = deployment.Labels
+		return a.kube.Update(ctx, existing)
+	}); err != nil {
+		return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash,
+			fmt.Errorf("failed to create/update deployment: %w", err))
+	}
+
+	// Step 4: Create/Update Service
+	service := a.generateServiceForDataSource(ds)
+	if err := controllerutil.SetControllerReference(ds, service, a.kube.Scheme()); err != nil {
+		return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash,
+			fmt.Errorf("failed to set owner reference on service: %w", err))
+	}
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing := &corev1.Service{}
+		err := a.kube.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, existing)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return a.kube.Create(ctx, service)
+			}
+			return err
+		}
+		// Preserve ClusterIP when updating
+		service.Spec.ClusterIP = existing.Spec.ClusterIP
+		existing.Spec = service.Spec
+		existing.Labels = service.Labels
+		return a.kube.Update(ctx, existing)
+	}); err != nil {
+		return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash,
+			fmt.Errorf("failed to create/update service: %w", err))
+	}
+
+	// Step 5: Create/Update RemoteMCPServer
+	remoteMCPServer := a.generateRemoteMCPServerForDataSource(ds)
+	if err := controllerutil.SetControllerReference(ds, remoteMCPServer, a.kube.Scheme()); err != nil {
+		return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash,
+			fmt.Errorf("failed to set owner reference on remotemcpserver: %w", err))
+	}
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing := &v1alpha2.RemoteMCPServer{}
+		err := a.kube.Get(ctx, types.NamespacedName{Name: remoteMCPServer.Name, Namespace: remoteMCPServer.Namespace}, existing)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return a.kube.Create(ctx, remoteMCPServer)
+			}
+			return err
+		}
+		existing.Spec = remoteMCPServer.Spec
+		existing.Labels = remoteMCPServer.Labels
+		return a.kube.Update(ctx, existing)
+	}); err != nil {
+		return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash,
+			fmt.Errorf("failed to create/update remotemcpserver: %w", err))
+	}
+
+	l.Info("Successfully reconciled DataSource", "mcpServer", mcpServerName)
+
+	// Step 6: Update DataSource status
+	return a.reconcileDataSourceStatus(ctx, ds, nil, secretHash, nil)
+}
+
+// generateDeploymentForDataSource creates the Deployment spec for a DataSource MCP server.
+// The deployment runs the databricks-mcp binary in HTTP mode.
+func (a *kagentReconciler) generateDeploymentForDataSource(ds *v1alpha2.DataSource) *appsv1.Deployment {
+	mcpServerName := fmt.Sprintf("%s-mcp", ds.Name)
+
+	// Build the list of models to pass to the MCP server
+	var modelNames []string
+	for _, m := range ds.Spec.SemanticModels {
+		modelNames = append(modelNames, m.Name)
+	}
+
+	// Build command args for HTTP mode
+	args := []string{
+		"--transport=streamable-http",
+		"--port=8080",
+		fmt.Sprintf("--workspace-url=%s", ds.Spec.Databricks.WorkspaceURL),
+		fmt.Sprintf("--catalog=%s", ds.Spec.Databricks.Catalog),
+	}
+	if ds.Spec.Databricks.Schema != "" {
+		args = append(args, fmt.Sprintf("--schema=%s", ds.Spec.Databricks.Schema))
+	}
+	if ds.Spec.Databricks.WarehouseID != "" {
+		args = append(args, fmt.Sprintf("--warehouse-id=%s", ds.Spec.Databricks.WarehouseID))
+	}
+	if len(modelNames) > 0 {
+		args = append(args, fmt.Sprintf("--models=%s", strings.Join(modelNames, ",")))
+	}
+
+	labels := map[string]string{
+		"kagent.dev/datasource": ds.Name,
+		"kagent.dev/provider":   string(ds.Spec.Provider),
+		"kagent.dev/component":  "mcp-server",
+	}
+
+	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mcpServerName,
+			Namespace: ds.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptr.To(int32(1)),
+			Strategy: appsv1.DeploymentStrategy{
+				Type: appsv1.RollingUpdateDeploymentStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
+					MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+				},
+			},
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:            "databricks-mcp",
+						Image:           fmt.Sprintf("%s/kagent-dev/kagent/databricks-mcp:%s", agent_translator.DefaultImageConfig.Registry, agent_translator.DefaultImageConfig.Tag),
+						ImagePullPolicy: corev1.PullPolicy(agent_translator.DefaultImageConfig.PullPolicy),
+						Args:            args,
+						Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}},
+						Env: []corev1.EnvVar{{
+							Name: "DATABRICKS_TOKEN",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: ds.Spec.Databricks.CredentialsSecretRef,
+									},
+									Key: ds.Spec.Databricks.CredentialsSecretKey,
+								},
+							},
+						}},
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{
+									Path: "/health",
+									Port: intstr.FromString("http"),
+								},
+							},
+							InitialDelaySeconds: 5,
+							TimeoutSeconds:      5,
+							PeriodSeconds:       10,
+						},
+						LivenessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{
+									Path: "/health",
+									Port: intstr.FromString("http"),
+								},
+							},
+							InitialDelaySeconds: 10,
+							TimeoutSeconds:      5,
+							PeriodSeconds:       30,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
+							},
+						},
+					}},
+					ImagePullSecrets: func() []corev1.LocalObjectReference {
+						if agent_translator.DefaultImageConfig.PullSecret != "" {
+							return []corev1.LocalObjectReference{{Name: agent_translator.DefaultImageConfig.PullSecret}}
+						}
+						return nil
+					}(),
+				},
+			},
+		},
+	}
+}
+
+// generateServiceForDataSource creates the Service spec for a DataSource MCP server.
+func (a *kagentReconciler) generateServiceForDataSource(ds *v1alpha2.DataSource) *corev1.Service {
+	mcpServerName := fmt.Sprintf("%s-mcp", ds.Name)
+
+	labels := map[string]string{
+		"kagent.dev/datasource": ds.Name,
+		"kagent.dev/provider":   string(ds.Spec.Provider),
+		"kagent.dev/component":  "mcp-server",
+	}
+
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mcpServerName,
+			Namespace: ds.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{{
+				Name:       "http",
+				Port:       8080,
+				TargetPort: intstr.FromInt(8080),
+			}},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+}
+
+// generateRemoteMCPServerForDataSource creates the RemoteMCPServer spec for a DataSource.
+// This allows agents to reference the DataSource's MCP server via http_tools.
+func (a *kagentReconciler) generateRemoteMCPServerForDataSource(ds *v1alpha2.DataSource) *v1alpha2.RemoteMCPServer {
+	mcpServerName := fmt.Sprintf("%s-mcp", ds.Name)
+
+	return &v1alpha2.RemoteMCPServer{
+		TypeMeta: metav1.TypeMeta{APIVersion: "kagent.dev/v1alpha2", Kind: "RemoteMCPServer"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mcpServerName,
+			Namespace: ds.Namespace,
+			Labels: map[string]string{
+				"kagent.dev/datasource": ds.Name,
+				"kagent.dev/provider":   string(ds.Spec.Provider),
+			},
+		},
+		Spec: v1alpha2.RemoteMCPServerSpec{
+			Description: fmt.Sprintf("Auto-generated MCP server for DataSource %s (%s)", ds.Name, ds.Spec.Provider),
+			Protocol:    v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			URL:         fmt.Sprintf("http://%s.%s:8080/mcp", mcpServerName, ds.Namespace),
+		},
+	}
+}
+
+// reconcileDataSourceStatus sets the status fields and conditions on the DataSource.
+func (a *kagentReconciler) reconcileDataSourceStatus(
+	ctx context.Context,
+	ds *v1alpha2.DataSource,
+	availableModels []v1alpha2.DiscoveredModel,
+	secretHash string,
+	reconcileErr error,
+) error {
+	// Set Connected condition based on whether we had connection/secret errors
+	connectedCondition := metav1.Condition{
+		Type:               v1alpha2.DataSourceConditionTypeConnected,
+		ObservedGeneration: ds.Generation,
+	}
+	if reconcileErr != nil && (strings.Contains(reconcileErr.Error(), "secret") || strings.Contains(reconcileErr.Error(), "credentials")) {
+		connectedCondition.Status = metav1.ConditionFalse
+		connectedCondition.Reason = "CredentialsError"
+		connectedCondition.Message = reconcileErr.Error()
+	} else if reconcileErr != nil {
+		connectedCondition.Status = metav1.ConditionUnknown
+		connectedCondition.Reason = "Unknown"
+		connectedCondition.Message = reconcileErr.Error()
+	} else {
+		connectedCondition.Status = metav1.ConditionTrue
+		connectedCondition.Reason = "Connected"
+		connectedCondition.Message = "Credentials validated successfully"
+	}
+	conditionChanged := meta.SetStatusCondition(&ds.Status.Conditions, connectedCondition)
+
+	// Set Ready condition based on overall reconciliation success
+	readyCondition := metav1.Condition{
+		Type:               v1alpha2.DataSourceConditionTypeReady,
+		ObservedGeneration: ds.Generation,
+	}
+	if reconcileErr != nil {
+		readyCondition.Status = metav1.ConditionFalse
+		readyCondition.Reason = "ReconcileFailed"
+		readyCondition.Message = reconcileErr.Error()
+	} else {
+		readyCondition.Status = metav1.ConditionTrue
+		readyCondition.Reason = "Ready"
+		readyCondition.Message = "MCP server created successfully"
+	}
+	conditionChanged = conditionChanged || meta.SetStatusCondition(&ds.Status.Conditions, readyCondition)
+
+	// Check if status fields changed
+	secretHashChanged := ds.Status.SecretHash != secretHash
+	mcpServerName := fmt.Sprintf("%s-mcp", ds.Name)
+	mcpServerChanged := ds.Status.GeneratedMCPServer != mcpServerName
+
+	// Update status fields
+	ds.Status.GeneratedMCPServer = mcpServerName
+	ds.Status.SecretHash = secretHash
+	if availableModels != nil {
+		ds.Status.AvailableModels = availableModels
+	}
+
+	// Only update if something changed
+	if conditionChanged || ds.Status.ObservedGeneration != ds.Generation || secretHashChanged || mcpServerChanged {
+		ds.Status.ObservedGeneration = ds.Generation
+		if err := a.kube.Status().Update(ctx, ds); err != nil {
+			return fmt.Errorf("failed to update datasource status: %v", err)
+		}
+	}
+
+	return reconcileErr
 }
 
 func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctrl.Request) error {

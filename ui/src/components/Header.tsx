@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, Database } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import {
   DropdownMenu,
@@ -82,6 +82,12 @@ export function Header() {
                     New MCP Server
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/datasources/new" className="gap-2 cursor-pointer w-full">
+                    <Database className="h-4 w-4" />
+                    New Data Source
+                  </Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             
@@ -116,6 +122,12 @@ export function Header() {
                   <Link href="/servers" className="gap-2 cursor-pointer w-full">
                     <Server className="h-4 w-4" />
                     MCP Servers
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/datasources" className="gap-2 cursor-pointer w-full">
+                    <Database className="h-4 w-4" />
+                    Data Sources
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -180,6 +192,12 @@ export function Header() {
                       MCP Servers
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/datasources" className="gap-2 cursor-pointer w-full">
+                      <Database className="h-4 w-4" />
+                      Data Sources
+                    </Link>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -209,6 +227,12 @@ export function Header() {
                     <Link href="/servers/new" className="gap-2 cursor-pointer w-full">
                       <Server className="h-4 w-4" />
                       New MCP Server
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                    <Link href="/datasources/new" className="gap-2 cursor-pointer w-full">
+                      <Database className="h-4 w-4" />
+                      New Data Source
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

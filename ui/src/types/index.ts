@@ -393,3 +393,99 @@ export interface DiscoveredTool {
   name: string;
   description: string;
 }
+
+// =============================================================================
+// DataSource Types
+// =============================================================================
+
+/**
+ * DatabricksConfig contains Databricks-specific connection settings.
+ */
+export interface DatabricksConfig {
+  workspaceUrl: string;
+  credentialsSecretRef: string;
+  credentialsSecretKey: string;
+  catalog: string;
+  schema?: string;
+  warehouseId?: string;
+}
+
+/**
+ * SemanticModelRef references a semantic model selected by the user.
+ */
+export interface SemanticModelRef {
+  name: string;
+  description?: string;
+}
+
+/**
+ * DiscoveredModel represents a semantic model found in Unity Catalog.
+ */
+export interface DiscoveredModel {
+  name: string;
+  catalog: string;
+  schema: string;
+  description?: string;
+}
+
+/**
+ * DataSourceResponse represents the API response for a DataSource.
+ */
+export interface DataSourceResponse {
+  ref: string;
+  provider: string;
+  databricks?: DatabricksConfig;
+  semanticModels?: SemanticModelRef[];
+  availableModels?: DiscoveredModel[];
+  generatedMCPServer?: string;
+  connected: boolean;
+  ready: boolean;
+}
+
+/**
+ * DatabricksCatalog represents a Databricks Unity Catalog.
+ */
+export interface DatabricksCatalog {
+  name: string;
+  comment?: string;
+}
+
+/**
+ * DatabricksSchema represents a schema within a Databricks catalog.
+ */
+export interface DatabricksSchema {
+  name: string;
+  catalog: string;
+  comment?: string;
+}
+
+/**
+ * DatabricksTable represents a table within a Databricks schema.
+ */
+export interface DatabricksTable {
+  name: string;
+  catalog: string;
+  schema: string;
+  tableType: string;
+  comment?: string;
+}
+
+/**
+ * CreateDataSourceRequest represents the request to create a new DataSource.
+ */
+export interface CreateDataSourceRequest {
+  name: string;
+  namespace: string;
+  catalog: string;
+  schema: string;
+  tables: string[];
+  warehouseId?: string;
+}
+
+/**
+ * UpdateDataSourceRequest represents the request to update a DataSource.
+ * Only table selection (semantic models) can be updated.
+ */
+export interface UpdateDataSourceRequest {
+  tables: string[];
+}

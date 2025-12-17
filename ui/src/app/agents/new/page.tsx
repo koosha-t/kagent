@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Settings2, PlusCircle, Trash2 } from "lucide-react";
-import { ModelConfig, AgentType } from "@/types";
+import { ModelConfig, AgentType, DataSourceResponse } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
+import { DataSourcesSection } from "@/components/create/DataSourcesSection";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
@@ -17,6 +18,7 @@ import KagentLogo from "@/components/kagent-logo";
 import { AgentFormData } from "@/components/AgentsProvider";
 import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
+import { getDataSources } from "@/app/actions/datasources";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,6 +70,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     systemPrompt: string;
     selectedModel: SelectedModelType | null;
     selectedTools: Tool[];
+    selectedDataSources: DataSourceResponse[];
     skillRefs: string[];
     byoImage: string;
     byoCmd: string;
@@ -89,6 +92,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
     selectedTools: [],
+    selectedDataSources: [],
     skillRefs: [""],
     byoImage: "",
     byoCmd: "",
@@ -127,11 +131,40 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               };
               // v1alpha2: read type and split specs
               if (agent.spec.type === "Declarative") {
+                // Get agent tools
+                const agentTools = (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [];
+
+                // Fetch available DataSources to identify which tools are DataSource-linked
+                const dataSourcesResponse = await getDataSources();
+                const availableDataSources = dataSourcesResponse.data || [];
+
+                // Identify tools that are DataSource-generated RemoteMCPServers
+                const linkedDataSources = availableDataSources.filter(ds =>
+                  ds.generatedMCPServer && agentTools.some(tool =>
+                    tool.type === "McpServer" &&
+                    tool.mcpServer?.kind === "RemoteMCPServer" &&
+                    tool.mcpServer?.name === ds.generatedMCPServer
+                  )
+                );
+
+                // Filter out DataSource tools from the regular tools list
+                const regularTools = agentTools.filter(tool => {
+                  if (tool.type !== "McpServer" || tool.mcpServer?.kind !== "RemoteMCPServer") {
+                    return true; // Keep non-MCP and non-RemoteMCPServer tools
+                  }
+                  // Check if this tool is a DataSource-generated server
+                  const isDataSourceTool = linkedDataSources.some(
+                    ds => ds.generatedMCPServer === tool.mcpServer?.name
+                  );
+                  return !isDataSourceTool; // Keep only if NOT a DataSource tool
+                });
+
                 setState(prev => ({
                   ...prev,
                   ...baseUpdates,
                   systemPrompt: agent.spec?.declarative?.systemMessage || "",
-                  selectedTools: (agent.spec?.declarative?.tools && agentResponse.tools) ? agentResponse.tools : [],
+                  selectedTools: regularTools,
+                  selectedDataSources: linkedDataSources,
                   selectedModel: agentResponse.modelConfigRef ? { model: agentResponse.model || "default-model-config", ref: agentResponse.modelConfigRef } : null,
                   skillRefs: (agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0) ? agent.spec.skills.refs : [""],
                   byoImage: "",
@@ -276,6 +309,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         modelName: state.selectedModel?.ref || "",
         stream: true,
         tools: state.selectedTools,
+        dataSources: state.selectedDataSources,
         skillRefs: state.agentType === "Declarative" ? (state.skillRefs || []).filter(ref => ref.trim()) : undefined,
         // BYO
         byoImage: state.byoImage,
@@ -610,6 +644,22 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       isSubmitting={state.isSubmitting || state.isLoading}
                       onBlur={() => validateField('tools', state.selectedTools)}
                       currentAgentName={state.name}
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings2 className="h-5 w-5 text-violet-500" />
+                      Data Sources
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <DataSourcesSection
+                      selectedDataSources={state.selectedDataSources}
+                      setSelectedDataSources={(dataSources) => setState(prev => ({ ...prev, selectedDataSources: dataSources }))}
+                      isSubmitting={state.isSubmitting || state.isLoading}
                     />
                   </CardContent>
                 </Card>
